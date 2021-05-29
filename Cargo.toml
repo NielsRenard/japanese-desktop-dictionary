@@ -1,0 +1,13 @@
+[package]
+name = "async-dict"
+version = "0.1.0"
+authors = ["Niels Renard <code.i.pushed@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+reqwest    = { version = "0.11"   , features = ["json"           ] }
+tokio      = { version = "1.6"    , features = ["full"           ] }
+serde      = { version = "1.0.59" , features = ["derive"         ] }
+serde_json = { version = "1.0.59"                                  }
