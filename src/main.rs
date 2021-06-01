@@ -59,26 +59,34 @@ impl Application for Dict {
     }
 
     fn update(&mut self, message: Message, _clipboard: &mut Clipboard) -> Command<Message> {
-        match message {
-            Message::InputChanged(value) => {
-                *self = Dict::Waiting {
-                    input: text_input::State::new(),
-                    input_value: value,
-                    button: button::State::new(),
-                };
-                Command::none()
-            }
-            Message::ButtonPressed => {
-                *self = Dict::Loading;
-                Command::perform(Self::search(), Message::WordFound)
-            }
-            Message::WordFound(Ok(jisho_result)) => {
-                *self = Dict::Loaded {
-                    result: jisho_result,
-                };
-                Command::none()
-            }
-            Message::WordFound(Err(error)) => Command::none(),
+        match self {
+            Dict::Waiting { input_value, .. } => match message {
+                Message::InputChanged(value) => {
+                    *input_value = value;
+                    Command::none()
+                }
+                Message::ButtonPressed => {
+                    *self = Dict::Loading;
+                    return Command::perform(Self::search(), Message::WordFound);
+                }
+                _ => Command::none(),
+            },
+            Dict::Loading { .. } => match message {
+                Message::WordFound(Ok(jisho_result)) => {
+                    *self = Dict::Loaded {
+                        result: jisho_result,
+                    };
+                    return Command::none();
+                }
+                Message::WordFound(Err(_error)) => {
+                    // Do something useful here
+                    Command::none()
+                }
+                _ => Command::none(),
+            },
+            Dict::Loaded { .. } => match message {
+                _ => Command::none(),
+            },
         }
     }
 
