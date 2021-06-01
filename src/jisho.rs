@@ -16,13 +16,13 @@ pub struct Entry {
     tags: Vec<String>,
     jlpt: Vec<String>,
     japanese: Vec<JapaneseWord>,
-    senses: Vec<Sense>,
-    attribution: Attribution,
+    pub senses: Vec<Sense>,
+    pub attribution: Attribution,
 }
 #[derive(Deserialize, Default, Clone, Debug)]
 pub struct JapaneseWord {
     word: Option<String>,
-    reading: Option<String>,
+    pub reading: Option<String>,
 }
 #[derive(Deserialize, Default, Clone, Debug)]
 pub struct Attribution {
@@ -32,6 +32,6 @@ pub struct Attribution {
 }
 #[derive(Deserialize, Default, Clone, Debug)]
 pub struct Sense {
-    english_definitions: Vec<String>,
+    pub english_definitions: Vec<String>,
     parts_of_speech: Vec<String>,
 }

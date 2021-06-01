@@ -111,30 +111,40 @@ impl Application for Dict {
                             &input_value,
                             Message::InputChanged,
                         )
-                        .size(130),
+                        .size(90),
                     ),
                 )
                 .push(
-                    Button::new(button, Text::new("Submit"))
+                    Button::new(button, Text::new("Submit").size(40))
                         .padding(10)
                         .on_press(Message::ButtonPressed),
                 )
                 .into(),
-            Dict::Loaded { result } => Column::new()
-                .max_width(500)
-                .spacing(20)
-                .align_items(Align::End)
-                .push(
-                    Text::new(&result.data[0].slug)
-                        .size(150)
-                        .width(Length::Fill),
-                ),
+
+            Dict::Loaded { result } => {
+                let mut column = Column::new()
+                    .max_width(500)
+                    .spacing(20)
+                    .align_items(Align::End);
+                for i in &result.data {
+                    let row = Row::new()
+                        .spacing(10)
+                        .push(Text::new(&i.slug).size(30).width(Length::Fill))
+                        .push(
+                            Text::new(&i.senses[0].english_definitions[0])
+                                .size(30)
+                                .width(Length::Fill),
+                        );
+                    column = column.push(row);
+                }
+                column
+            }
         };
 
         Container::new(content)
             .width(Length::Fill)
             .height(Length::Fill)
-            .center_x()
+            .padding(30)
             .center_y()
             .into()
     }
