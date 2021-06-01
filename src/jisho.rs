@@ -15,9 +15,9 @@ pub struct Entry {
     is_common: Option<bool>,
     tags: Vec<String>,
     jlpt: Vec<String>,
-    japanese: Vec<JapaneseWord>,
+    pub japanese: Vec<JapaneseWord>,
     pub senses: Vec<Sense>,
-    pub attribution: Attribution,
+    attribution: Attribution,
 }
 #[derive(Deserialize, Default, Clone, Debug)]
 pub struct JapaneseWord {

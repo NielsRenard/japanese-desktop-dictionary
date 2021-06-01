@@ -2,9 +2,9 @@ mod jisho;
 use crate::jisho::JishoResponse;
 use iced::{
     button, text_input, window, Align, Application, Button, Clipboard, Column, Command, Container,
-    Element, Length, Row, Settings, Text, TextInput,
+    Element, HorizontalAlignment, Length, Row, Settings, Text, TextInput,
 };
-use std::env;
+//use std::env;
 
 #[derive(Debug)]
 enum Dict {
@@ -16,6 +16,7 @@ enum Dict {
     Loading,
     Loaded {
         result: JishoResponse,
+        button: button::State,
     },
 }
 
@@ -38,6 +39,7 @@ enum Message {
     InputChanged(String),
     ButtonPressed,
     WordFound(Result<JishoResponse, Error>),
+    SearchAgainButtonPressed,
 }
 
 impl Application for Dict {
@@ -46,6 +48,9 @@ impl Application for Dict {
     type Flags = ();
 
     fn new(_flags: ()) -> (Self, Command<Message>) {
+        // let args: Vec<String> = env::args().collect();
+        // let query_string: &str = &args[1..].join(" ");
+
         let dict = Dict::Waiting {
             input: text_input::State::new(),
             input_value: "".to_string(),
@@ -66,8 +71,10 @@ impl Application for Dict {
                     Command::none()
                 }
                 Message::ButtonPressed => {
+                    let query = input_value.clone();
                     *self = Dict::Loading;
-                    return Command::perform(Self::search(), Message::WordFound);
+                    println!("{}", query);
+                    Command::perform(Dict::search(query), Message::WordFound)
                 }
                 _ => Command::none(),
             },
@@ -75,8 +82,9 @@ impl Application for Dict {
                 Message::WordFound(Ok(jisho_result)) => {
                     *self = Dict::Loaded {
                         result: jisho_result,
+                        button: button::State::new(),
                     };
-                    return Command::none();
+                    Command::none()
                 }
                 Message::WordFound(Err(_error)) => {
                     // Do something useful here
@@ -85,6 +93,14 @@ impl Application for Dict {
                 _ => Command::none(),
             },
             Dict::Loaded { .. } => match message {
+                Message::SearchAgainButtonPressed => {
+                    *self = Dict::Waiting {
+                        input: text_input::State::new(),
+                        input_value: "".to_string(),
+                        button: button::State::new(),
+                    };
+                    Command::none()
+                }
                 _ => Command::none(),
             },
         }
@@ -94,7 +110,7 @@ impl Application for Dict {
         let content = match self {
             Dict::Loading {} => Column::new()
                 .width(Length::Shrink)
-                .push(Text::new("Loading...").size(150)),
+                .push(Text::new("Loading...").size(40)),
             Dict::Waiting {
                 input,
                 input_value,
@@ -102,7 +118,8 @@ impl Application for Dict {
             } => Column::new()
                 .width(Length::Fill)
                 .height(Length::Fill)
-                .align_items(Align::Center)
+                .align_items(Align::Start)
+                .padding(10)
                 .push(
                     Row::new().spacing(10).push(
                         TextInput::new(
@@ -111,29 +128,47 @@ impl Application for Dict {
                             &input_value,
                             Message::InputChanged,
                         )
-                        .size(90),
+                        .padding(10)
+                        .size(25),
                     ),
                 )
                 .push(
-                    Button::new(button, Text::new("Submit").size(40))
+                    Button::new(button, Text::new("Search").size(20))
                         .padding(10)
                         .on_press(Message::ButtonPressed),
-                )
-                .into(),
+                ),
 
-            Dict::Loaded { result } => {
+            Dict::Loaded { result, button } => {
                 let mut column = Column::new()
-                    .max_width(500)
-                    .spacing(20)
-                    .align_items(Align::End);
+                    .spacing(5)
+                    .align_items(Align::Start)
+                    .height(Length::Fill)
+                    .push(
+                        Button::new(button, Text::new("Search Again").size(25))
+                            .padding(10)
+                            .on_press(Message::SearchAgainButtonPressed),
+                    )
+                    .push(
+                        Text::new(format!("{} results:", &result.data.len()))
+                            .size(30)
+                            .width(Length::Fill),
+                    );
+
                 for i in &result.data {
+                    let reading = i.japanese[0].reading.clone();
                     let row = Row::new()
                         .spacing(10)
                         .push(Text::new(&i.slug).size(30).width(Length::Fill))
                         .push(
-                            Text::new(&i.senses[0].english_definitions[0])
+                            Text::new(reading.unwrap_or_default())
                                 .size(30)
                                 .width(Length::Fill),
+                        )
+                        .push(
+                            Text::new(&i.senses[0].english_definitions[0])
+                                .size(30)
+                                .width(Length::Fill)
+                                .horizontal_alignment(HorizontalAlignment::Left),
                         );
                     column = column.push(row);
                 }
@@ -145,19 +180,14 @@ impl Application for Dict {
             .width(Length::Fill)
             .height(Length::Fill)
             .padding(30)
-            .center_y()
             .into()
     }
 }
 
 impl Dict {
-    async fn search() -> Result<JishoResponse, Error> {
-        // let args: Vec<String> = env::args().collect();
-        // let query_string: &str = &args[1..].join(" ");
-        let query_string = "家";
+    async fn search(query: String) -> Result<JishoResponse, Error> {
         let jisho_base_url = "https://jisho.org/api/v1/search/words?keyword=".to_string();
-        let resp: JishoResponse = reqwest::get(jisho_base_url + query_string)
-            // &self.input_value)
+        let resp: JishoResponse = reqwest::get(jisho_base_url + &query[..])
             .await?
             .json()
             .await?;
@@ -177,17 +207,3 @@ impl From<reqwest::Error> for Error {
         Error::ApiError
     }
 }
-
-// #[tokio::main]
-// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//     let args: Vec<String> = env::args().collect();
-//     let query_string : &str = &args[1..].join(" ");
-//     let jisho_base_url = "https://jisho.org/api/v1/search/words?keyword=".to_string();
-//     let resp : JishoResponse = reqwest::get(jisho_base_url + query_string)
-//         .await?
-//         .json()
-//         .await?;
-
-//     println!("{:#?}", resp);
-//     Ok(())
-// }
