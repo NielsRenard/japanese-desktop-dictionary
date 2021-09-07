@@ -1,9 +1,20 @@
 mod jisho;
+extern crate nom;
+use nom::{IResult};
+
+use nom::character::is_digit;
+use nom::character::complete::{digit1, tab, u32};
+use crate::nom::bytes::complete::take_until;
+
 use crate::jisho::JishoResponse;
+use std::fs::read_to_string;
 use iced::{
-    button, text_input, window, Align, Application, Button, Clipboard, Column, Command, Container,
-    Element, HorizontalAlignment, Length, Row, Settings, Text, TextInput,
+    keyboard, button, text_input, window, Align, Application, Button, Clipboard, Column, Command, Container,
+    Element, HorizontalAlignment, Length, Row, Settings, Text, TextInput, Subscription
 };
+
+use iced_native::{subscription, Event};
+
 //use std::env;
 
 #[derive(Debug)]
@@ -19,6 +30,87 @@ enum Dict {
         button: button::State,
     },
 }
+
+// 4707    1282    ムーリエルは２０歳になりました。        Muiriel is 20 now.      は|1 二十歳(はたち){２０歳} になる[01]{になりました}
+// 4851    1434    愛してる。      I love you.     愛する{愛してる}
+// 4858    1442    ログアウトするんじゃなかったよ。        I shouldn't have logged off.    ログアウト~ 為る(する){する} ん[03] だ{じゃなかった} よ[01]
+
+#[derive(Debug,PartialEq)]
+pub struct ExampleSentence {
+    japanese_sentence_id: u32,
+    english_sentence_id_or_something: u32,
+    japanese_text: String,
+    english_text: String,
+    indices: Vec<Index>
+}
+
+fn wwwjdict_parser(input: &str) ->IResult<&str, ExampleSentence> {
+    let (input, japanese_sentence_id) = u32(input)?;
+    let (input, _) = tab(input)?;
+    let (input, english_sentence_id) = u32(input)?;
+    let (input, _) = tab(input)?;
+    let (input, japanese_text) = take_until("	")(input)?;
+    let (input, _) = tab(input)?;
+    let (input, english_text) = take_until("	")(input)?;
+    let (input, _) = tab(input)?;
+    Ok((input, ExampleSentence {
+        japanese_sentence_id: japanese_sentence_id,
+        english_sentence_id_or_something: japanese_sentence_id,
+        japanese_text: japanese_text.to_string(), //"愛してる。".to_string(),
+        english_text: english_text.to_string(),
+        indices: Vec::new() // "愛する{愛してる}".to_string()
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nom::{
+        error::{ErrorKind, VerboseError, VerboseErrorKind},
+        Err as NomErr,
+    };
+
+    #[test]
+    fn test_scheme() {
+        // assert_eq!(wwwjdict_parser("01234    "), Ok(("    ", "01234")));
+        // assert_eq!(wwwjdict_parser("01a"), Ok(("a", "01")));
+        let example_sentence = ExampleSentence {
+            japanese_sentence_id: 4851,
+            english_sentence_id_or_something: 1434,
+            japanese_text: "愛してる。".to_string(),
+            english_text: "I love you.".to_string(),
+            // indices: "愛する{愛してる}".to_string(),
+            indices: Vec::new(),
+        };
+        assert_eq!(wwwjdict_parser("4851	1434	愛してる。	I love you.	愛する{愛してる}"), Ok(("", example_sentence)));
+    }
+}
+
+
+// 彼(かれ)[01]{彼の}
+// The fields after the indexing headword ()[]{}~ must be in that order.
+#[derive(Debug,PartialEq)]
+pub struct Index {
+    headword: String,
+    reading: Option<String>,
+    sense_number: Option<u32>,
+    form_in_sentence: Option<String>,
+    good_and_checked: bool
+}
+
+// http://www.edrdg.org/wiki/index.php/Sentence-Dictionary_Linking
+
+// fn identification_code(input: &str) -> Res<&str, (&str, Option<&str>)> {
+//     context(
+//         "identification code",
+//         terminated(
+//             digit1,
+//             tag("\t"),
+//         ),
+//     )(input)
+// }
+
+
 
 pub fn main() -> iced::Result {
     Dict::run(Settings {
@@ -37,7 +129,8 @@ pub fn main() -> iced::Result {
 #[derive(Debug, Clone)]
 enum Message {
     InputChanged(String),
-    ButtonPressed,
+    SearchButtonPressed,
+    EscapeButtonPressed,
     WordFound(Result<JishoResponse, Error>),
     SearchAgainButtonPressed,
 }
@@ -48,8 +141,18 @@ impl Application for Dict {
     type Flags = ();
 
     fn new(_flags: ()) -> (Self, Command<Message>) {
-        // let args: Vec<String> = env::args().collect();
-        // let query_string: &str = &args[1..].join(" ");
+
+        // http://www.edrdg.org/wiki/index.php/Sentence-Dictionary_Linking
+        let example_sentences = read_to_string("resources/wwwjdic.csv");
+        match example_sentences {
+            Ok(sentences) => {
+                let lines: Vec<&str> =  sentences.lines().collect();
+                let first_sentence : Vec<&str> = lines[0].split("\t").collect();
+                print!("{:?}", first_sentence );
+            }
+            Err(e) => { println!("{:?}", e); }
+        }
+
 
         let dict = Dict::Waiting {
             input: text_input::State::new(),
@@ -58,6 +161,7 @@ impl Application for Dict {
         };
         (dict, Command::none())
     }
+
 
     fn title(&self) -> String {
         String::from("Dict")
@@ -70,11 +174,14 @@ impl Application for Dict {
                     *input_value = value;
                     Command::none()
                 }
-                Message::ButtonPressed => {
+                Message::SearchButtonPressed => {
                     let query = input_value.clone();
                     *self = Dict::Loading;
                     println!("{}", query);
                     Command::perform(Dict::search(query), Message::WordFound)
+                }
+                Message::EscapeButtonPressed => {
+                    std::process::exit(0);
                 }
                 _ => Command::none(),
             },
@@ -90,6 +197,9 @@ impl Application for Dict {
                     // Do something useful here
                     Command::none()
                 }
+                Message::EscapeButtonPressed => {
+                    std::process::exit(0);
+                }
                 _ => Command::none(),
             },
             Dict::Loaded { .. } => match message {
@@ -101,9 +211,30 @@ impl Application for Dict {
                     };
                     Command::none()
                 }
+                Message::EscapeButtonPressed => {
+                    std::process::exit(0);
+                }
                 _ => Command::none(),
             },
         }
+    }
+
+    fn subscription(&self) -> Subscription<Message> {
+        subscription::events_with(|event, _status| {
+
+            // this can be used to not handle the event when cursor is inside an input box
+            // if let event::Status::Captured = status {
+            //     return None;
+            // }
+
+            match event {
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    modifiers: _,
+                    key_code,
+                }) => handle_hotkey(key_code),
+                _ => None,
+            }
+        })
     }
 
     fn view(&mut self) -> Element<Message> {
@@ -135,7 +266,7 @@ impl Application for Dict {
                 .push(
                     Button::new(button, Text::new("Search").size(20))
                         .padding(10)
-                        .on_press(Message::ButtonPressed),
+                        .on_press(Message::SearchButtonPressed),
                 ),
 
             Dict::Loaded { result, button } => {
@@ -191,7 +322,7 @@ impl Dict {
             .await?
             .json()
             .await?;
-        println!("{:#?}", resp);
+        // println!("{:#?}", resp);
         Ok(resp)
     }
 }
@@ -205,5 +336,15 @@ impl From<reqwest::Error> for Error {
     fn from(error: reqwest::Error) -> Error {
         dbg!(error);
         Error::ApiError
+    }
+}
+
+fn handle_hotkey(key_code: keyboard::KeyCode) -> Option<Message> {
+    use keyboard::KeyCode;
+
+    match key_code {
+        KeyCode::Enter => Some(Message::SearchButtonPressed),
+        KeyCode::Escape => Some(Message::EscapeButtonPressed),
+        _ => None,
     }
 }
