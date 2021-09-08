@@ -3,8 +3,11 @@ extern crate nom;
 use nom::{IResult};
 
 use nom::character::is_digit;
-use nom::character::complete::{digit1, tab, u32};
-use crate::nom::bytes::complete::take_until;
+use nom::branch::alt;
+use nom::multi::many0;
+use nom::character::complete::{char, digit1, tab, u32, newline, anychar};
+use nom::sequence::delimited;
+use crate::nom::bytes::complete::{take_until, is_not};
 
 use crate::jisho::JishoResponse;
 use std::fs::read_to_string;
@@ -47,20 +50,70 @@ pub struct ExampleSentence {
 fn wwwjdict_parser(input: &str) ->IResult<&str, ExampleSentence> {
     let (input, japanese_sentence_id) = u32(input)?;
     let (input, _) = tab(input)?;
-    let (input, english_sentence_id) = u32(input)?;
+    let (input, english_sentence_id_or_something) = u32(input)?;
     let (input, _) = tab(input)?;
     let (input, japanese_text) = take_until("	")(input)?;
     let (input, _) = tab(input)?;
     let (input, english_text) = take_until("	")(input)?;
     let (input, _) = tab(input)?;
+    let (input, indices_string) = take_until("\n")(input)?;
+    let indices: Vec<&str> = indices_string.split(" ").collect();
+
+    fn is_not_brace(s: &str) -> IResult<&str, &str>  {
+        is_not("({[")(s)
+    }
+    let mut indices_vector = Vec::new();
+
+    for index in &indices {
+        let (input, headword) = is_not_brace(index)?;
+        let (input, brace) = alt((delimited(char('('),
+                                               many0(anychar),
+                                               char(')')),
+                                 delimited(char('['),
+                                           many0(anychar),
+                                           char(']')),
+                                 delimited(char('{'),
+                                           many0(anychar),
+                                           char('}'))))(input)?;
+        indices_vector.push(Index {
+            headword: headword.to_string(),
+            form_in_sentence: None,
+            sense_number: None,
+            good_and_checked: false,
+            reading: None,
+        });
+    }
+
+    
+//    println!("INDICES: {:?}\n", indices);
+    // index parser:
+    // take_until ( or [ or { -> headword
+    // if (, take until )     -> reading
+    // if [, take until ]     -> sense
+    // if {, take until }     -> form_in_sentence
+    // if ~                   -> good_and_checked
+
+    
     Ok((input, ExampleSentence {
-        japanese_sentence_id: japanese_sentence_id,
-        english_sentence_id_or_something: japanese_sentence_id,
-        japanese_text: japanese_text.to_string(), //"愛してる。".to_string(),
+        japanese_sentence_id,
+        english_sentence_id_or_something,
+        japanese_text: japanese_text.to_string(),
         english_text: english_text.to_string(),
-        indices: Vec::new() // "愛する{愛してる}".to_string()
+        indices: indices_vector // "愛する{愛してる}".to_string()
     }))
 }
+
+// 彼(かれ)[01]{彼の}
+// The fields after the indexing headword ()[]{}~ must be in that order.
+#[derive(Debug,PartialEq)]
+pub struct Index {
+    headword: String,
+    reading: Option<String>,
+    sense_number: Option<u32>,
+    form_in_sentence: Option<String>,
+    good_and_checked: bool
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -74,29 +127,26 @@ mod tests {
     fn test_scheme() {
         // assert_eq!(wwwjdict_parser("01234    "), Ok(("    ", "01234")));
         // assert_eq!(wwwjdict_parser("01a"), Ok(("a", "01")));
+        let mut indexes = Vec::new();
+        indexes.push(Index {
+            headword: "愛する".to_string(),
+            form_in_sentence: Some("愛してる".to_string()),
+            reading: None,
+            sense_number: None,
+            good_and_checked: false
+        });
         let example_sentence = ExampleSentence {
             japanese_sentence_id: 4851,
             english_sentence_id_or_something: 1434,
             japanese_text: "愛してる。".to_string(),
             english_text: "I love you.".to_string(),
             // indices: "愛する{愛してる}".to_string(),
-            indices: Vec::new(),
+            indices: indexes
         };
         assert_eq!(wwwjdict_parser("4851	1434	愛してる。	I love you.	愛する{愛してる}"), Ok(("", example_sentence)));
     }
 }
 
-
-// 彼(かれ)[01]{彼の}
-// The fields after the indexing headword ()[]{}~ must be in that order.
-#[derive(Debug,PartialEq)]
-pub struct Index {
-    headword: String,
-    reading: Option<String>,
-    sense_number: Option<u32>,
-    form_in_sentence: Option<String>,
-    good_and_checked: bool
-}
 
 // http://www.edrdg.org/wiki/index.php/Sentence-Dictionary_Linking
 
