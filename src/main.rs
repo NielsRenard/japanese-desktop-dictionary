@@ -2,12 +2,9 @@ mod jisho;
 extern crate nom;
 use nom::{IResult};
 
-use nom::character::is_digit;
-use nom::branch::alt;
-use nom::multi::many0;
-use nom::character::complete::{char, digit1, tab, u32, newline, anychar};
-use nom::sequence::delimited;
-use crate::nom::bytes::complete::{take_until, is_not};
+use nom::bytes::complete::{tag, take_while};
+use nom::character::complete::{tab, u32, one_of, char};
+use crate::nom::bytes::complete::{take_until, is_not, is_a};
 
 use crate::jisho::JishoResponse;
 use std::fs::read_to_string;
@@ -44,7 +41,31 @@ pub struct ExampleSentence {
     english_sentence_id_or_something: u32,
     japanese_text: String,
     english_text: String,
-    indices: Vec<Index>
+    indices: Vec<IndexType>
+}
+
+#[derive(Debug,PartialEq)]
+enum IndexType {
+    Reading(String, String, bool),       // ()
+    Sense(String, i32, bool),            // []
+    FormInSentence(String, String, bool) // {}
+}
+
+fn parseIndex(input: &str)-> IResult<&str, IndexType>{
+    let (input, headword) = is_not("([{")(input)?;
+    let (input, delimiter) = one_of("([{")(input)?;
+    // todo: can't get exhaustive match on char, parse delimiter to an enum
+    let delimiter_close = match delimiter { '(' => ')', '[' => ']', '{' => '}', _ => '?'}; 
+    let (input, value) = take_while(|c| c != delimiter_close)(input)?;
+    let (input, delimiter_end) = char(delimiter_close)(input)?;
+    // todo: parse squiggly ~ or eol
+    let index_type = match delimiter {
+        '('  => { IndexType::Reading (headword.to_string(), value.to_string(), false ) }
+        '['  => { IndexType::Sense (headword.to_string(), value.parse::<i32>().unwrap(), false ) }
+        '{'  => { IndexType::FormInSentence (headword.to_string(), value.to_string(), false ) }
+        _ => IndexType::Sense ("ERROR".to_string(), 0, false )
+    };
+    Ok((input, index_type))
 }
 
 fn wwwjdict_parser(input: &str) ->IResult<&str, ExampleSentence> {
@@ -56,35 +77,33 @@ fn wwwjdict_parser(input: &str) ->IResult<&str, ExampleSentence> {
     let (input, _) = tab(input)?;
     let (input, english_text) = take_until("	")(input)?;
     let (input, _) = tab(input)?;
-    let (input, indices_string) = take_until("\n")(input)?;
-    let indices: Vec<&str> = indices_string.split(" ").collect();
+    let (input, index) = parseIndex(input)?;
+    // let indices: Vec<&str> = indices_string.split(" ").collect();
 
-    fn is_not_brace(s: &str) -> IResult<&str, &str>  {
-        is_not("({[")(s)
-    }
+    // fn is_not_brace(s: &str) -> IResult<&str, &str>  {
+    //     is_not("({[")(s)
+    // }
+    // for index in &indices {
+    //     let (input, headword) = is_not_brace(index)?;
+    //     let (input, brace) = alt((delimited(char('('),
+    //                                            many0(anychar),
+    //                                            char(')')),
+    //                              delimited(char('['),
+    //                                        many0(anychar),
+    //                                        char(']')),
+    //                              delimited(char('{'),
+    //                                        many0(anychar),
+    //                                        char('}'))))(input)?;
     let mut indices_vector = Vec::new();
+    indices_vector.push(index);
+     //    indices_vector.push(IndexType {
+     //        headword: headword.to_string(),
+     //        form_in_sentence: None,
+     //        sense_number: None,
+     //        good_and_checked: false,
+     //        reading: None,
+     //    });
 
-    for index in &indices {
-        let (input, headword) = is_not_brace(index)?;
-        let (input, brace) = alt((delimited(char('('),
-                                               many0(anychar),
-                                               char(')')),
-                                 delimited(char('['),
-                                           many0(anychar),
-                                           char(']')),
-                                 delimited(char('{'),
-                                           many0(anychar),
-                                           char('}'))))(input)?;
-        indices_vector.push(Index {
-            headword: headword.to_string(),
-            form_in_sentence: None,
-            sense_number: None,
-            good_and_checked: false,
-            reading: None,
-        });
-    }
-
-    
 //    println!("INDICES: {:?}\n", indices);
     // index parser:
     // take_until ( or [ or { -> headword
@@ -128,19 +147,12 @@ mod tests {
         // assert_eq!(wwwjdict_parser("01234    "), Ok(("    ", "01234")));
         // assert_eq!(wwwjdict_parser("01a"), Ok(("a", "01")));
         let mut indexes = Vec::new();
-        indexes.push(Index {
-            headword: "愛する".to_string(),
-            form_in_sentence: Some("愛してる".to_string()),
-            reading: None,
-            sense_number: None,
-            good_and_checked: false
-        });
+        indexes.push(IndexType::FormInSentence( "愛する".to_string(), "愛してる".to_string() , false));
         let example_sentence = ExampleSentence {
             japanese_sentence_id: 4851,
             english_sentence_id_or_something: 1434,
             japanese_text: "愛してる。".to_string(),
             english_text: "I love you.".to_string(),
-            // indices: "愛する{愛してる}".to_string(),
             indices: indexes
         };
         assert_eq!(wwwjdict_parser("4851	1434	愛してる。	I love you.	愛する{愛してる}"), Ok(("", example_sentence)));
