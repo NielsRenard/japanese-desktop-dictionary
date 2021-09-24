@@ -2,9 +2,12 @@ mod jisho;
 extern crate nom;
 use nom::IResult;
 
-use crate::nom::bytes::complete::{is_not, take_until};
+use crate::nom::bytes::complete::{is_not, tag, take_until};
+use nom::branch::alt;
 use nom::bytes::complete::take_while;
-use nom::character::complete::{char, one_of, tab, u32};
+use nom::character::complete::{char, newline, one_of, tab, u32};
+use nom::combinator::eof;
+use nom::multi::many_till;
 
 use crate::jisho::JishoResponse;
 use iced::{
@@ -52,7 +55,7 @@ impl SearchResult {
             translation,
         }
     }
-    fn to_row(&self) -> Row<Message> {
+    fn _to_row(&self) -> Row<Message> {
         Row::new()
             .spacing(10)
             .push(Text::new(&self.japanese).size(30).width(Length::Fill))
@@ -76,44 +79,135 @@ pub struct ExampleSentence {
     english_sentence_id_or_something: u32,
     japanese_text: String,
     english_text: String,
-    indices: Vec<IndexType>,
+    indices: Vec<IndexWord>,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum IndexType {
+    Bare(String, bool),
     Reading(String, String, bool),        // ()
     Sense(String, i32, bool),             // []
     FormInSentence(String, String, bool), // {}
 }
 
-fn parse_index(input: &str) -> IResult<&str, IndexType> {
-    let (input, headword) = is_not("([{")(input)?;
-    let (input, delimiter) = one_of("([{")(input)?;
-    // todo: can't get exhaustive match on char, parse delimiter to an enum
-    let delimiter_close = match delimiter {
-        '(' => ')',
-        '[' => ']',
-        '{' => '}',
-        _ => '?',
+#[derive(Debug, PartialEq)]
+pub enum IndexElement {
+    Bare,
+    Reading(String),        // ()
+    Sense(i32),             // []
+    FormInSentence(String), // {}
+    GoodAndChecked,         // {}
+}
+
+// 彼(かれ)[01]{彼の}
+// The fields after the indexing headword ()[]{}~ must be in that order.
+#[derive(Debug, PartialEq)]
+pub struct IndexWord {
+    headword: String,
+    reading: Option<String>,
+    sense_number: Option<i32>,
+    form_in_sentence: Option<String>,
+    good_and_checked: bool,
+}
+
+fn parse_index_word(input: &str) -> IResult<&str, IndexWord> {
+    let (input, headword) = is_not("([{~ \n")(input)?;
+
+    // if input.chars().nth(0) == Some(' ') {
+    //     print!("{}, input:{}", "Bare", input);
+    //     let (input, _space) = tag(" ")(input)?;
+    //     return Ok((input, IndexWord {   headword: headword.to_string(),
+    //                                     reading: None, sense_number: None,
+    //                                     form_in_sentence: None, good_and_checked: false,},));
+    // }
+    // 総員~ 脱出 為る(する){せよ}"
+    let (input, (index_elements, _)) = many_till(parse_index_element, one_of(" \n"))(input)?;
+    let reading_option: Option<&IndexElement> = index_elements.iter().find(|e| match e {
+        IndexElement::Reading(_) => true,
+        _ => false,
+    });
+
+    let reading: Option<String> = match reading_option {
+        Some(IndexElement::Reading(reading)) => Some(reading.to_string()),
+        _ => None,
     };
+
+    let sense_option: Option<&IndexElement> = index_elements.iter().find(|e| match e {
+        IndexElement::Sense(_) => true,
+        _ => false,
+    });
+
+    let sense_number: Option<i32> = match sense_option {
+        Some(IndexElement::Sense(number)) => Some(*number),
+        _ => None,
+    };
+
+    let form_option: Option<&IndexElement> = index_elements.iter().find(|e| match e {
+        IndexElement::FormInSentence(_) => true,
+        _ => false,
+    });
+
+    let form_in_sentence: Option<String> = match form_option {
+        Some(IndexElement::FormInSentence(form)) => Some(form.to_string()),
+        _ => None,
+    };
+
+    let good_option: Option<&IndexElement> = index_elements.iter().find(|e| match e {
+        IndexElement::GoodAndChecked => true,
+        _ => false,
+    });
+
+    let good_and_checked: bool = match good_option {
+        Some(IndexElement::GoodAndChecked) => true,
+        _ => false,
+    };
+
+    let index_word = IndexWord {
+        headword: headword.to_string(),
+        reading,
+        sense_number,
+        form_in_sentence,
+        good_and_checked,
+    };
+    Ok((input, index_word))
+}
+
+// Parses one of the index elements optionally present after an index headword
+// delimited by (), [], {},  or ending with a ~.
+//
+// TODO:
+// handle the "は|1" cases "Some indices are followed by a "|"
+// character and a digit. These are an artefact from a former
+// maintenance system, and can be safely ignored. "
+fn parse_index_element(input: &str) -> IResult<&str, IndexElement> {
+    let (input, delimiter) = one_of("([{~ ")(input)?;
+
+    // early exit if char is ~
+    if delimiter == '~' {
+        return Ok((input, IndexElement::GoodAndChecked));
+    }
+
+    let delimiter_close: char = match_delimiter(delimiter);
     let (input, value) = take_while(|c| c != delimiter_close)(input)?;
     let (input, _delimiter_end) = char(delimiter_close)(input)?;
-    let (input, delimiter) = one_of("([{")(input)?;
-    // todo: can't get exhaustive match on char, parse delimiter to an enum
-    let _delimiter_close = match delimiter {
+    let index_element = match delimiter {
+        '(' => IndexElement::Reading(value.to_string()),
+        '[' => IndexElement::Sense(value.parse::<i32>().unwrap()),
+        '{' => IndexElement::FormInSentence(value.to_string()),
+        _ => IndexElement::GoodAndChecked, // TODO: make exhaustive by using enum instead of char
+    };
+    Ok((input, index_element))
+}
+
+fn match_delimiter(delimiter_open: char) -> char {
+    return match delimiter_open {
         '(' => ')',
         '[' => ']',
         '{' => '}',
-        _ => '?',
+        '~' => '~',
+        '\n' => '\n',
+        _ => '_',
     };
-    // todo: parse squiggly ~ or eol
-    let index_type = match delimiter {
-        '(' => IndexType::Reading(headword.to_string(), value.to_string(), false),
-        '[' => IndexType::Sense(headword.to_string(), value.parse::<i32>().unwrap(), false),
-        '{' => IndexType::FormInSentence(headword.to_string(), value.to_string(), false),
-        _ => IndexType::Sense("ERROR".to_string(), 0, false),
-    };
-    Ok((input, index_type))
 }
 
 fn wwwjdict_parser(input: &str) -> IResult<&str, ExampleSentence> {
@@ -125,40 +219,7 @@ fn wwwjdict_parser(input: &str) -> IResult<&str, ExampleSentence> {
     let (input, _) = tab(input)?;
     let (input, english_text) = take_until("	")(input)?;
     let (input, _) = tab(input)?;
-    let (input, index) = parse_index(input)?;
-    // let indices: Vec<&str> = indices_string.split(" ").collect();
-
-    // fn is_not_brace(s: &str) -> IResult<&str, &str>  {
-    //     is_not("({[")(s)
-    // }
-    // for index in &indices {
-    //     let (input, headword) = is_not_brace(index)?;
-    //     let (input, brace) = alt((delimited(char('('),
-    //                                            many0(anychar),
-    //                                            char(')')),
-    //                              delimited(char('['),
-    //                                        many0(anychar),
-    //                                        char(']')),
-    //                              delimited(char('{'),
-    //                                        many0(anychar),
-    //                                        char('}'))))(input)?;
-    let mut indices_vector = Vec::new();
-    indices_vector.push(index);
-    //    indices_vector.push(IndexType {
-    //        headword: headword.to_string(),
-    //        form_in_sentence: None,
-    //        sense_number: None,
-    //        good_and_checked: false,
-    //        reading: None,
-    //    });
-
-    //    println!("INDICES: {:?}\n", indices);
-    // index parser:
-    // take_until ( or [ or { -> headword
-    // if (, take until )     -> reading
-    // if [, take until ]     -> sense
-    // if {, take until }     -> form_in_sentence
-    // if ~                   -> good_and_checked
+    let (input, (indices, _)) = many_till(parse_index_word, eof)(input)?;
 
     Ok((
         input,
@@ -167,7 +228,7 @@ fn wwwjdict_parser(input: &str) -> IResult<&str, ExampleSentence> {
             english_sentence_id_or_something,
             japanese_text: japanese_text.to_string(),
             english_text: english_text.to_string(),
-            indices: indices_vector, // "愛する{愛してる}".to_string()
+            indices, // "愛する{愛してる}".to_string()
         },
     ))
 }
@@ -190,11 +251,15 @@ mod tests {
     #[test]
     fn test_scheme_basic_index() {
         let mut indexes = Vec::new();
-        indexes.push(IndexType::FormInSentence(
-            "愛する".to_string(),
-            "愛してる".to_string(),
-            false,
-        ));
+        //4851	1434	愛してる。	I love you.	愛する{愛してる}
+        indexes.push(IndexWord {
+            headword: "愛する".to_string(),
+            reading: None,
+            sense_number: None,
+            form_in_sentence: Some("愛してる".to_string()),
+            good_and_checked: false,
+        });
+
         let example_sentence = ExampleSentence {
             japanese_sentence_id: 4851,
             english_sentence_id_or_something: 1434,
@@ -203,7 +268,7 @@ mod tests {
             indices: indexes,
         };
         assert_eq!(
-            wwwjdict_parser("4851	1434	愛してる。	I love you.	愛する{愛してる}"),
+            wwwjdict_parser("4851	1434	愛してる。	I love you.	愛する{愛してる}\n"),
             Ok(("", example_sentence))
         );
     }
@@ -211,19 +276,30 @@ mod tests {
     #[test]
     fn test_scheme_complex_index() {
         let mut indexes = Vec::new();
-        indexes.push(IndexType::Reading(
-            "為る".to_string(),
-            "する".to_string(),
-            false,
-        ));
-        indexes.push(IndexType::FormInSentence(
-            "為る".to_string(),
-            "せよ".to_string(),
-            false,
-        ));
+        indexes.push(IndexWord {
+            headword: "総員".to_string(),
+            reading: None,
+            sense_number: None,
+            form_in_sentence: None,
+            good_and_checked: true,
+        });
+        indexes.push(IndexWord {
+            headword: "脱出".to_string(),
+            reading: None,
+            sense_number: None,
+            form_in_sentence: None,
+            good_and_checked: false,
+        });
+        indexes.push(IndexWord {
+            headword: "為る".to_string(),
+            reading: Some("する".to_string()),
+            sense_number: None,
+            form_in_sentence: Some("せよ".to_string()),
+            good_and_checked: false,
+        });
         let example_sentence = ExampleSentence {
-            japanese_sentence_id: 4851,
-            english_sentence_id_or_something: 1434,
+            japanese_sentence_id: 75198,
+            english_sentence_id_or_something: 328521,
             japanese_text: "総員、脱出せよ！".to_string(),
             english_text: "All hands, abandon ship!".to_string(),
             indices: indexes,
@@ -231,8 +307,127 @@ mod tests {
 
         assert_eq!(
             wwwjdict_parser(
-                "75198	328521	総員、脱出せよ！	All hands, abandon ship!	総員~ 脱出 為る(する){せよ}"
+                // "75198	328521	総員、脱出せよ！	All hands, abandon ship!	為る(する){せよ}"
+                // "75198	328521	総員、脱出せよ！	All hands, abandon ship!	総員 脱出 為る(する){せよ}"
+                "75198	328521	総員、脱出せよ！	All hands, abandon ship!	総員~ 脱出 為る(する){せよ}\n"
             ),
+            Ok(("", example_sentence))
+        );
+    }
+
+    #[test]
+    fn test_scheme_complex_index_legacy_pipe_ignore() {
+        let mut indexes = Vec::new();
+        indexes.push(IndexWord {
+            headword: "北".to_string(),
+            reading: None,
+            sense_number: None,
+            form_in_sentence: None,
+            good_and_checked: false,
+        });
+        indexes.push(IndexWord {
+            headword: "の".to_string(),
+            reading: None,
+            sense_number: None,
+            form_in_sentence: None,
+            good_and_checked: false,
+        });
+        indexes.push(IndexWord {
+            headword: "国".to_string(),
+            reading: None,
+            sense_number: Some(2),
+            form_in_sentence: None,
+            good_and_checked: true,
+        });
+        indexes.push(IndexWord {
+            headword: "から".to_string(),
+            reading: None,
+            sense_number: None,
+            form_in_sentence: None,
+            good_and_checked: false,
+        });
+        indexes.push(IndexWord {
+            headword: "は|1".to_string(), // this is wrong
+            reading: None,
+            sense_number: None,
+            form_in_sentence: None,
+            good_and_checked: false,
+        });
+        indexes.push(IndexWord {
+            headword: "北海道".to_string(),
+            reading: None,
+            sense_number: None,
+            form_in_sentence: None,
+            good_and_checked: false,
+        });
+        indexes.push(IndexWord {
+            headword: "市".to_string(),
+            reading: Some("し".to_string()),
+            sense_number: None,
+            form_in_sentence: None,
+            good_and_checked: false,
+        });
+        indexes.push(IndexWord {
+            headword: "を".to_string(),
+            reading: None,
+            sense_number: None,
+            form_in_sentence: None,
+            good_and_checked: false,
+        });
+        indexes.push(IndexWord {
+            headword: "舞台".to_string(),
+            reading: None,
+            sense_number: None,
+            form_in_sentence: None,
+            good_and_checked: false,
+        });
+        indexes.push(IndexWord {
+            headword: "に".to_string(),
+            reading: None,
+            sense_number: None,
+            form_in_sentence: None,
+            good_and_checked: false,
+        });
+        indexes.push(IndexWord {
+            headword: "為る".to_string(),
+            reading: Some("する".to_string()),
+            sense_number: None,
+            form_in_sentence: Some("した".to_string()),
+            good_and_checked: false,
+        });
+        indexes.push(IndexWord {
+            headword: "制作".to_string(),
+            reading: None,
+            sense_number: None,
+            form_in_sentence: None,
+            good_and_checked: false,
+        });
+        // We don't avoid duplicates yet
+        indexes.push(IndexWord {
+            headword: "の".to_string(),
+            reading: None,
+            sense_number: None,
+            form_in_sentence: None,
+            good_and_checked: false,
+        });
+        indexes.push(IndexWord {
+            headword: "テレビドラマ".to_string(),
+            reading: None,
+            sense_number: None,
+            form_in_sentence: None,
+            good_and_checked: false,
+        });
+
+        let example_sentence = ExampleSentence {
+            japanese_sentence_id: 74031,
+            english_sentence_id_or_something: 329689,
+            japanese_text: "『北の国から』は、北海道富良野市を舞台にしたフジテレビジョン制作のテレビドラマ。".to_string(),
+            english_text: "\"From the North Country\" is a TV drama produced by Fuji TV and set in Furano in Hokkaido.".to_string(),
+            indices: indexes,
+        };
+
+        assert_eq!(
+            wwwjdict_parser("74031	329689	『北の国から』は、北海道富良野市を舞台にしたフジテレビジョン制作のテレビドラマ。	\"From the North Country\" is a TV drama produced by Fuji TV and set in Furano in Hokkaido.	北 の 国[02]~ から は|1 北海道 市(し) を 舞台 に 為る(する){した} 制作 の テレビドラマ\n"),
             Ok(("", example_sentence))
         );
     }
@@ -281,18 +476,6 @@ impl Application for Dict {
 
     fn new(_flags: ()) -> (Self, Command<Message>) {
         // http://www.edrdg.org/wiki/index.php/Sentence-Dictionary_Linking
-        let example_sentences = read_to_string("resources/wwwjdic.csv");
-        match example_sentences {
-            Ok(sentences) => {
-                let lines: Vec<&str> = sentences.lines().collect();
-                let first_sentence: Vec<&str> = lines[0].split('\t').collect();
-                print!("{:?}", first_sentence);
-            }
-            Err(e) => {
-                println!("{:?}", e);
-            }
-        }
-
         let dict = Dict::Waiting {
             input: text_input::State::new(),
             input_value: "".to_string(),
@@ -371,6 +554,14 @@ impl Application for Dict {
                 _ => Command::none(),
             },
             Dict::Details { .. } => match message {
+                Message::EscapeButtonPressed => {
+                    *self = Dict::Waiting {
+                        input: text_input::State::new(),
+                        input_value: "".to_string(),
+                        button: button::State::new(),
+                    };
+                    Command::none()
+                }
                 _ => Command::none(),
             },
         }
@@ -481,6 +672,17 @@ impl Application for Dict {
                 column
             }
             Dict::Details { word } => {
+                let example_sentences = read_to_string("resources/wwwjdic.csv");
+                match example_sentences {
+                    Ok(sentences) => {
+                        let lines: Vec<&str> = sentences.lines().collect();
+                        let first_sentence: Vec<&str> = lines[0].split('\t').collect();
+                        print!("{:?}", first_sentence);
+                    }
+                    Err(e) => {
+                        println!("{:?}", e);
+                    }
+                };
                 let column = Column::new()
                     .spacing(5)
                     .align_items(Align::Start)
