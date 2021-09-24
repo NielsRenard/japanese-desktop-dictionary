@@ -69,10 +69,6 @@ impl SearchResult {
     }
 }
 
-// 4707    1282    ムーリエルは２０歳になりました。        Muiriel is 20 now.      は|1 二十歳(はたち){２０歳} になる[01]{になりました}
-// 4851    1434    愛してる。      I love you.     愛する{愛してる}
-// 4858    1442    ログアウトするんじゃなかったよ。        I shouldn't have logged off.    ログアウト~ 為る(する){する} ん[03] だ{じゃなかった} よ[01]
-
 #[derive(Debug, PartialEq)]
 pub struct ExampleSentence {
     japanese_sentence_id: u32,
@@ -83,20 +79,12 @@ pub struct ExampleSentence {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum IndexType {
-    Bare(String, bool),
-    Reading(String, String, bool),        // ()
-    Sense(String, i32, bool),             // []
-    FormInSentence(String, String, bool), // {}
-}
-
-#[derive(Debug, PartialEq)]
 pub enum IndexElement {
     Bare,
-    Reading(String),        // ()
+    Reading(String),         // ()
     Sense(i32),             // []
     FormInSentence(String), // {}
-    GoodAndChecked,         // {}
+    GoodAndChecked,       // {}
 }
 
 // 彼(かれ)[01]{彼の}
@@ -112,15 +100,6 @@ pub struct IndexWord {
 
 fn parse_index_word(input: &str) -> IResult<&str, IndexWord> {
     let (input, headword) = is_not("([{~ \n")(input)?;
-
-    // if input.chars().nth(0) == Some(' ') {
-    //     print!("{}, input:{}", "Bare", input);
-    //     let (input, _space) = tag(" ")(input)?;
-    //     return Ok((input, IndexWord {   headword: headword.to_string(),
-    //                                     reading: None, sense_number: None,
-    //                                     form_in_sentence: None, good_and_checked: false,},));
-    // }
-    // 総員~ 脱出 為る(する){せよ}"
     let (input, (index_elements, _)) = many_till(parse_index_element, one_of(" \n"))(input)?;
     let reading_option: Option<&IndexElement> = index_elements.iter().find(|e| match e {
         IndexElement::Reading(_) => true,
@@ -233,20 +212,10 @@ fn wwwjdict_parser(input: &str) -> IResult<&str, ExampleSentence> {
     ))
 }
 
-// 彼(かれ)[01]{彼の}
-// The fields after the indexing headword ()[]{}~ must be in that order.
-#[derive(Debug, PartialEq)]
-pub struct Index {
-    headword: String,
-    reading: Option<String>,
-    sense_number: Option<u32>,
-    form_in_sentence: Option<String>,
-    good_and_checked: bool,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    // http://www.edrdg.org/wiki/index.php/Sentence-Dictionary_Linking
 
     #[test]
     fn test_scheme_basic_index() {
@@ -433,18 +402,6 @@ mod tests {
     }
 }
 
-// http://www.edrdg.org/wiki/index.php/Sentence-Dictionary_Linking
-
-// fn identification_code(input: &str) -> Res<&str, (&str, Option<&str>)> {
-//     context(
-//         "identification code",
-//         terminated(
-//             digit1,
-//             tag("\t"),
-//         ),
-//     )(input)
-// }
-
 pub fn main() -> iced::Result {
     Dict::run(Settings {
         default_font: Some(include_bytes!("../resources/Meiryo.ttf")),
@@ -475,12 +432,24 @@ impl Application for Dict {
     type Flags = ();
 
     fn new(_flags: ()) -> (Self, Command<Message>) {
-        // http://www.edrdg.org/wiki/index.php/Sentence-Dictionary_Linking
         let dict = Dict::Waiting {
             input: text_input::State::new(),
             input_value: "".to_string(),
             button: button::State::new(),
         };
+        // http://www.edrdg.org/wiki/index.php/Sentence-Dictionary_Linking
+        let example_sentences = read_to_string("resources/wwwjdic.csv");
+        match example_sentences {
+            Ok(sentences) => {
+                let lines: Vec<&str> =  sentences.lines().collect();
+                let mut first_sentence = lines[0].to_owned();
+                print!("first sentence: {:?}", first_sentence.push('\n'));
+                let parsed = wwwjdict_parser(&first_sentence);
+                print!("{:?}", parsed );
+            }
+            Err(e) => { println!("{:?}", e); }
+        }
+
         (dict, Command::none())
     }
 
@@ -675,9 +644,9 @@ impl Application for Dict {
                 let example_sentences = read_to_string("resources/wwwjdic.csv");
                 match example_sentences {
                     Ok(sentences) => {
-                        let lines: Vec<&str> = sentences.lines().collect();
-                        let first_sentence: Vec<&str> = lines[0].split('\t').collect();
-                        print!("{:?}", first_sentence);
+                        // let lines: Vec<&str> = sentences.lines().collect();
+                        // let first_sentence: Vec<&str> = lines[0].split('\t').collect();
+                        // print!("{:?}", first_sentence);
                     }
                     Err(e) => {
                         println!("{:?}", e);
