@@ -2,10 +2,9 @@ mod jisho;
 extern crate nom;
 use nom::IResult;
 
-use crate::nom::bytes::complete::{is_not, tag, take_until};
-use nom::branch::alt;
+use crate::nom::bytes::complete::{is_not, take_until};
 use nom::bytes::complete::take_while;
-use nom::character::complete::{char, newline, one_of, tab, u32};
+use nom::character::complete::{char, one_of, tab, u32};
 use nom::combinator::eof;
 use nom::multi::many_till;
 
@@ -98,8 +97,10 @@ pub struct IndexWord {
     good_and_checked: bool,
 }
 
+// Parses one index word, including all its index elements
 fn parse_index_word(input: &str) -> IResult<&str, IndexWord> {
-    let (input, headword) = is_not("([{~ \n")(input)?;
+    let (input, headword) = is_not("([{~| \n")(input)?;
+
     let (input, (index_elements, _)) = many_till(parse_index_element, one_of(" \n"))(input)?;
     let reading_option: Option<&IndexElement> = index_elements.iter().find(|e| match e {
         IndexElement::Reading(_) => true,
@@ -153,17 +154,25 @@ fn parse_index_word(input: &str) -> IResult<&str, IndexWord> {
 
 // Parses one of the index elements optionally present after an index headword
 // delimited by (), [], {},  or ending with a ~.
-//
-// TODO:
-// handle the "は|1" cases "Some indices are followed by a "|"
-// character and a digit. These are an artefact from a former
-// maintenance system, and can be safely ignored. "
 fn parse_index_element(input: &str) -> IResult<&str, IndexElement> {
-    let (input, delimiter) = one_of("([{~ ")(input)?;
+    let (input, delimiter) = one_of("([{~| ")(input)?;
 
     // early exit if char is ~
     if delimiter == '~' {
         return Ok((input, IndexElement::GoodAndChecked));
+    }
+    if delimiter == '|'
+    {
+        // "Some indices are followed by a "|" character and a
+        // digit 1 or 2. These are an artefact from a former maintenance
+        // system, and can be safely ignored. "
+        let (input, _) = one_of("12")(input)?;
+        // more dirty input: sometimes there are two spaces after a は|1.
+        // if input.chars().take(2).all(|i| i == ' ') {
+        //     let (input, _space) = tag(" ")(input)?;
+        //     return Ok((input, IndexElement::Bare));
+        // };
+        return Ok((input, IndexElement::Bare));
     }
 
     let delimiter_close: char = match_delimiter(delimiter);
@@ -285,6 +294,80 @@ mod tests {
     }
 
     #[test]
+    fn another_complex_test_scheme() {
+        let mut indexes = Vec::new();
+        //男の子(おとこのこ)
+        indexes.push(IndexWord {
+            headword: "男の子".to_string(),
+            reading: Some("おとこのこ".to_string()),
+            sense_number: None,
+            form_in_sentence: None,
+            good_and_checked: false,
+        });
+        indexes.push(IndexWord {
+            headword: "は".to_string(),
+            reading: None,
+            sense_number: None,
+            form_in_sentence: None,
+            good_and_checked: false,
+        });
+        indexes.push(IndexWord {
+            headword: "結局".to_string(),
+            reading: None,
+            sense_number: None,
+            form_in_sentence: None,
+            good_and_checked: false,
+        });
+        indexes.push(IndexWord {
+            headword: "男の子".to_string(),
+            reading: Some("おとこのこ".to_string()),
+            sense_number: None,
+            form_in_sentence: None,
+            good_and_checked: false,
+        });
+        indexes.push(IndexWord {
+            headword: "である".to_string(),
+            reading: None,
+            sense_number: None,
+            form_in_sentence: None,
+            good_and_checked: false,
+        });
+        indexes.push(IndexWord {
+            headword: "事".to_string(),
+            reading: Some("こと".to_string()),
+            sense_number: None,
+            form_in_sentence: Some("こと".to_string()),
+            good_and_checked: false,
+        });
+        indexes.push(IndexWord {
+            headword: "を".to_string(),
+            reading: None,
+            sense_number: None,
+            form_in_sentence: None,
+            good_and_checked: false,
+        });
+        indexes.push(IndexWord {
+            headword: "思い出す".to_string(),
+            reading: None,
+            sense_number: None,
+            form_in_sentence: Some("思いだした".to_string()),
+            good_and_checked: false,
+        });
+        let example_sentence = ExampleSentence {
+            japanese_sentence_id: 127240,
+            english_sentence_id_or_something: 276849,
+            japanese_text: "男の子は結局男の子であることを思いだした。".to_string(),
+            english_text: "I remembered that boys will be boys.".to_string(),
+            indices: indexes,
+        };
+
+        assert_eq!(
+            wwwjdict_parser("127240	276849	男の子は結局男の子であることを思いだした。	I remembered that boys will be boys.	男の子(おとこのこ) は|1 結局 男の子(おとこのこ) である 事(こと){こと} を 思い出す{思いだした}\n"),
+            Ok(("", example_sentence))
+        );
+    }
+
+    #[test]
     fn test_scheme_complex_index_legacy_pipe_ignore() {
         let mut indexes = Vec::new();
         indexes.push(IndexWord {
@@ -316,7 +399,7 @@ mod tests {
             good_and_checked: false,
         });
         indexes.push(IndexWord {
-            headword: "は|1".to_string(), // this is wrong
+            headword: "は".to_string(),
             reading: None,
             sense_number: None,
             form_in_sentence: None,
@@ -426,6 +509,36 @@ enum Message {
     SearchAgainButtonPressed,
 }
 
+// Iterator yielding every line in a string. The line includes newline character(s).
+// https://stackoverflow.com/questions/40455997/iterate-over-lines-in-a-string-including-the-newline-characters
+#[derive(Debug, Clone)]
+pub struct LinesWithEndings<'a> {
+    input: &'a str,
+}
+
+impl<'a> LinesWithEndings<'a> {
+    pub fn from(input: &'a str) -> LinesWithEndings<'a> {
+        LinesWithEndings {
+            input: input,
+        }
+    }
+}
+
+impl<'a> Iterator for LinesWithEndings<'a> {
+    type Item = &'a str;
+
+    #[inline]
+    fn next(&mut self) -> Option<&'a str> {
+        if self.input.is_empty() {
+            return None;
+        }
+        let split = self.input.find('\n').map(|i| i + 1).unwrap_or(self.input.len());
+        let (line, rest) = self.input.split_at(split);
+        self.input = rest;
+        Some(line)
+    }
+}
+
 impl Application for Dict {
     type Executor = iced::executor::Default;
     type Message = Message;
@@ -441,11 +554,26 @@ impl Application for Dict {
         let example_sentences = read_to_string("resources/wwwjdic.csv");
         match example_sentences {
             Ok(sentences) => {
-                let lines: Vec<&str> =  sentences.lines().collect();
-                let mut first_sentence = lines[0].to_owned();
-                print!("first sentence: {:?}", first_sentence.push('\n'));
-                let parsed = wwwjdict_parser(&first_sentence);
-                print!("{:?}", parsed );
+                // a little pre-processing for dirtiness in the wwwjdict data
+                let sentences = sentences.replace("	 ", "	"); // tab + space becomes just tab
+                let sentences = sentences.replace(" \n", "\n"); // space + newline becomes just newline
+                let sentences = sentences.replace("  ", " ");    // two spaces becomes one space
+                let lines = LinesWithEndings::from(&sentences);
+                
+                let parsed: Vec<_> =
+                    lines.into_iter().map(|sentence| wwwjdict_parser(sentence).unwrap()).collect();
+
+                // for line in lines.into_iter() {
+                //     let ex = wwwjdict_parser(line).unwrap();
+                //     print!("{:?}", ex)
+                // }
+                
+                // let parsed: Vec<String> = lines.map(|sentence| {
+                //     wwwjdict_parser(sentence).unwrap();
+                // }).collect();
+
+                // let parsed = wwwjdict_parser(&first_sentence);
+                // print!("{:?}", parsed );
             }
             Err(e) => { println!("{:?}", e); }
         }
@@ -648,8 +776,8 @@ impl Application for Dict {
                         // let first_sentence: Vec<&str> = lines[0].split('\t').collect();
                         // print!("{:?}", first_sentence);
                     }
-                    Err(e) => {
-                        println!("{:?}", e);
+                    Err(_e) => {
+                        // println!("{:?}", e);
                     }
                 };
                 let column = Column::new()
