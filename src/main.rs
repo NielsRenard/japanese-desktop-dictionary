@@ -519,7 +519,7 @@ pub struct LinesWithEndings<'a> {
 impl<'a> LinesWithEndings<'a> {
     pub fn from(input: &'a str) -> LinesWithEndings<'a> {
         LinesWithEndings {
-            input: input,
+            input,
         }
     }
 }
@@ -559,15 +559,16 @@ impl Application for Dict {
                 let sentences = sentences.replace(" \n", "\n"); // space + newline becomes just newline
                 let sentences = sentences.replace("  ", " ");    // two spaces becomes one space
                 let lines = LinesWithEndings::from(&sentences);
-                
-                let parsed: Vec<_> =
-                    lines.into_iter().map(|sentence| wwwjdict_parser(sentence).unwrap()).collect();
+
+                let _parsed: Vec<ExampleSentence> =
+                    lines.into_iter().map(|sentence| wwwjdict_parser(sentence).unwrap().1)
+                    .collect();
 
                 // for line in lines.into_iter() {
                 //     let ex = wwwjdict_parser(line).unwrap();
                 //     print!("{:?}", ex)
                 // }
-                
+
                 // let parsed: Vec<String> = lines.map(|sentence| {
                 //     wwwjdict_parser(sentence).unwrap();
                 // }).collect();
@@ -771,7 +772,7 @@ impl Application for Dict {
             Dict::Details { word } => {
                 let example_sentences = read_to_string("resources/wwwjdic.csv");
                 match example_sentences {
-                    Ok(sentences) => {
+                    Ok(_sentences) => {
                         // let lines: Vec<&str> = sentences.lines().collect();
                         // let first_sentence: Vec<&str> = lines[0].split('\t').collect();
                         // print!("{:?}", first_sentence);

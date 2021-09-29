@@ -1,0 +1,38 @@
+* Broken sentences in wwwjdict
+  127241	276817	男の子はやはり男の子。	Boys will be boys.	男の子(おとこのこ) は|1 矢張り{やはり} 男の子(おとこのこ)
+  398195	398198	私達は彼と取り引きすることにした。	We decided to make a deal with him.	私たち{私達} は|1 彼(かれ) と 取引{取り引き} 為る(する){する} 事(こと){こと} に 為る(する){した} 
+* Types
+   SentenceIndex: Map(HeadWord, List(ExampleSentence)
+
+   ExampleSentence: {
+     JapaneseSentenceId
+     EnglishSentenceId
+     JapaneseText
+     EnglishText
+     List(IndexWord)}
+     
+   IndexWord: {
+     headword
+     reading
+     sense_number
+     form_in_sentence
+     good_and_checked
+   }
+
+
+   
+List((IndexWord, SentenceId))
+
+A: [(123456, [慰, 家, 犬]),
+    (33488, [慰]),
+    (256, [犬, 家])
+    ]
+B: [[(慰, 123456), (家, 123456), (犬, 123456)],
+    [(慰, 33488)],
+    [(犬, 256), (家, 256)]
+    ]
+C: [(慰, [123456, 33488]),
+    (犬, [123456, 33488]),
+    (家, [123456, 256])
+    ]
+   
