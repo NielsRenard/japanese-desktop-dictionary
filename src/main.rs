@@ -7,17 +7,17 @@ use nom::bytes::complete::take_while;
 use nom::character::complete::{char, one_of, tab, u32};
 use nom::combinator::eof;
 use nom::multi::many_till;
+use std::collections::HashMap;
 
 use crate::jisho::JishoResponse;
 use iced::{
     button, keyboard, text_input, window, Align, Application, Button, Clipboard, Column, Command,
-    Container, Element, HorizontalAlignment, Length, Row, Settings, Subscription, Text, TextInput,
+    Container, Element, HorizontalAlignment, Length, Row, Settings, Space, Subscription, Text,
+    TextInput,
 };
 use std::fs::read_to_string;
 
 use iced_native::{subscription, Event};
-
-//use std::env;
 
 #[derive(Debug)]
 enum Dict {
@@ -25,15 +25,20 @@ enum Dict {
         input: text_input::State,
         input_value: String,
         button: button::State,
+        example_sentences: SentenceMap,
     },
-    Loading,
+    Loading {
+        example_sentences: SentenceMap,
+    },
     Loaded {
         result: JishoResponse,
         button: button::State,
         search_results: Vec<SearchResult>,
+        example_sentences: SentenceMap,
     },
     Details {
         word: String,
+        example_sentences: SentenceMap,
     },
 }
 
@@ -44,6 +49,8 @@ struct SearchResult {
     pub reading: String,
     pub translation: String,
 }
+
+type SentenceMap = HashMap<String, Vec<ExampleSentence>>;
 
 impl SearchResult {
     fn new(japanese: String, reading: String, translation: String) -> Self {
@@ -68,7 +75,7 @@ impl SearchResult {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ExampleSentence {
     japanese_sentence_id: u32,
     english_sentence_id_or_something: u32,
@@ -80,15 +87,15 @@ pub struct ExampleSentence {
 #[derive(Debug, PartialEq)]
 pub enum IndexElement {
     Bare,
-    Reading(String),         // ()
+    Reading(String),        // ()
     Sense(i32),             // []
     FormInSentence(String), // {}
-    GoodAndChecked,       // {}
+    GoodAndChecked,         // {}
 }
 
 // 彼(かれ)[01]{彼の}
 // The fields after the indexing headword ()[]{}~ must be in that order.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Clone)]
 pub struct IndexWord {
     headword: String,
     reading: Option<String>,
@@ -161,8 +168,7 @@ fn parse_index_element(input: &str) -> IResult<&str, IndexElement> {
     if delimiter == '~' {
         return Ok((input, IndexElement::GoodAndChecked));
     }
-    if delimiter == '|'
-    {
+    if delimiter == '|' {
         // "Some indices are followed by a "|" character and a
         // digit 1 or 2. These are an artefact from a former maintenance
         // system, and can be safely ignored. "
@@ -518,9 +524,7 @@ pub struct LinesWithEndings<'a> {
 
 impl<'a> LinesWithEndings<'a> {
     pub fn from(input: &'a str) -> LinesWithEndings<'a> {
-        LinesWithEndings {
-            input,
-        }
+        LinesWithEndings { input }
     }
 }
 
@@ -532,7 +536,11 @@ impl<'a> Iterator for LinesWithEndings<'a> {
         if self.input.is_empty() {
             return None;
         }
-        let split = self.input.find('\n').map(|i| i + 1).unwrap_or(self.input.len());
+        let split = self
+            .input
+            .find('\n')
+            .map(|i| i + 1)
+            .unwrap_or(self.input.len());
         let (line, rest) = self.input.split_at(split);
         self.input = rest;
         Some(line)
@@ -545,39 +553,43 @@ impl Application for Dict {
     type Flags = ();
 
     fn new(_flags: ()) -> (Self, Command<Message>) {
-        let dict = Dict::Waiting {
-            input: text_input::State::new(),
-            input_value: "".to_string(),
-            button: button::State::new(),
-        };
         // http://www.edrdg.org/wiki/index.php/Sentence-Dictionary_Linking
-        let example_sentences = read_to_string("resources/wwwjdic.csv");
-        match example_sentences {
+        let example_sentences_raw = read_to_string("resources/wwwjdic.csv");
+        let example_sentences = match example_sentences_raw {
             Ok(sentences) => {
                 // a little pre-processing for dirtiness in the wwwjdict data
                 let sentences = sentences.replace("	 ", "	"); // tab + space becomes just tab
                 let sentences = sentences.replace(" \n", "\n"); // space + newline becomes just newline
-                let sentences = sentences.replace("  ", " ");    // two spaces becomes one space
+                let sentences = sentences.replace("  ", " "); // two spaces becomes one space
                 let lines = LinesWithEndings::from(&sentences);
 
-                let _parsed: Vec<ExampleSentence> =
-                    lines.into_iter().map(|sentence| wwwjdict_parser(sentence).unwrap().1)
+                let parsed: Vec<ExampleSentence> = lines
+                    .into_iter()
+                    .map(|line| wwwjdict_parser(line).unwrap().1)
                     .collect();
 
-                // for line in lines.into_iter() {
-                //     let ex = wwwjdict_parser(line).unwrap();
-                //     print!("{:?}", ex)
-                // }
-
-                // let parsed: Vec<String> = lines.map(|sentence| {
-                //     wwwjdict_parser(sentence).unwrap();
-                // }).collect();
-
-                // let parsed = wwwjdict_parser(&first_sentence);
-                // print!("{:?}", parsed );
+                let mut words_to_sentences: HashMap<String, Vec<ExampleSentence>> = HashMap::new();
+                for sentence in parsed {
+                    for index_word in &sentence.indices {
+                        words_to_sentences
+                            .entry(index_word.headword.to_owned())
+                            .or_insert(Vec::new())
+                            .push(sentence.to_owned());
+                    }
+                }
+                words_to_sentences
             }
-            Err(e) => { println!("{:?}", e); }
-        }
+            Err(e) => {
+                println!("{:?}", e);
+                SentenceMap::new()
+            }
+        };
+        let dict = Dict::Waiting {
+            input: text_input::State::new(),
+            input_value: "".to_string(),
+            button: button::State::new(),
+            example_sentences,
+        };
 
         (dict, Command::none())
     }
@@ -588,14 +600,22 @@ impl Application for Dict {
 
     fn update(&mut self, message: Message, _clipboard: &mut Clipboard) -> Command<Message> {
         match self {
-            Dict::Waiting { input_value, .. } => match message {
+            Dict::Waiting {
+                input_value,
+                example_sentences,
+                ..
+            } => match message {
                 Message::InputChanged(value) => {
                     *input_value = value;
                     Command::none()
                 }
                 Message::SearchButtonPressed => {
                     let query = input_value.clone();
-                    *self = Dict::Loading;
+                    let old_example_sentences =
+                        std::mem::replace(example_sentences, Default::default());
+                    *self = Dict::Loading {
+                        example_sentences: old_example_sentences,
+                    };
                     println!("{}", query);
                     Command::perform(Dict::search(query), Message::WordFound)
                 }
@@ -604,7 +624,9 @@ impl Application for Dict {
                 }
                 _ => Command::none(),
             },
-            Dict::Loading { .. } => match message {
+            Dict::Loading {
+                example_sentences, ..
+            } => match message {
                 Message::WordFound(Ok(jisho_result)) => {
                     let mut search_results: Vec<SearchResult> = vec![];
                     for i in &jisho_result.data {
@@ -617,10 +639,13 @@ impl Application for Dict {
                             translation.clone(),
                         ));
                     }
+                    let old_example_sentences =
+                        std::mem::replace(example_sentences, Default::default());
                     *self = Dict::Loaded {
                         result: jisho_result,
                         button: button::State::new(),
                         search_results,
+                        example_sentences: old_example_sentences,
                     };
                     Command::none()
                 }
@@ -633,12 +658,17 @@ impl Application for Dict {
                 }
                 _ => Command::none(),
             },
-            Dict::Loaded { .. } => match message {
+            Dict::Loaded {
+                example_sentences, ..
+            } => match message {
                 Message::SearchAgainButtonPressed => {
+                    let old_example_sentences =
+                        std::mem::replace(example_sentences, Default::default());
                     *self = Dict::Waiting {
                         input: text_input::State::new(),
                         input_value: "".to_string(),
                         button: button::State::new(),
+                        example_sentences: old_example_sentences,
                     };
                     Command::none()
                 }
@@ -646,17 +676,27 @@ impl Application for Dict {
                     std::process::exit(0);
                 }
                 Message::DetailsButtonPressed(word) => {
-                    *self = Dict::Details { word };
+                    let old_example_sentences =
+                        std::mem::replace(example_sentences, Default::default());
+                    *self = Dict::Details {
+                        word,
+                        example_sentences: old_example_sentences,
+                    };
                     Command::none()
                 }
                 _ => Command::none(),
             },
-            Dict::Details { .. } => match message {
+            Dict::Details {
+                example_sentences, ..
+            } => match message {
                 Message::EscapeButtonPressed => {
+                    let example_sentences =
+                        std::mem::replace(example_sentences, Default::default());
                     *self = Dict::Waiting {
                         input: text_input::State::new(),
                         input_value: "".to_string(),
                         button: button::State::new(),
+                        example_sentences,
                     };
                     Command::none()
                 }
@@ -684,13 +724,16 @@ impl Application for Dict {
 
     fn view(&mut self) -> Element<Message> {
         let content = match self {
-            Dict::Loading {} => Column::new()
+            Dict::Loading {
+                example_sentences: _,
+            } => Column::new()
                 .width(Length::Shrink)
                 .push(Text::new("Loading...").size(40)),
             Dict::Waiting {
                 input,
                 input_value,
                 button,
+                example_sentences: _,
             } => Column::new()
                 .width(Length::Fill)
                 .height(Length::Fill)
@@ -718,6 +761,7 @@ impl Application for Dict {
                 result,
                 button,
                 search_results,
+                example_sentences: _,
             } => {
                 let mut column = Column::new()
                     .spacing(5)
@@ -769,23 +813,35 @@ impl Application for Dict {
 
                 column
             }
-            Dict::Details { word } => {
-                let example_sentences = read_to_string("resources/wwwjdic.csv");
-                match example_sentences {
-                    Ok(_sentences) => {
-                        // let lines: Vec<&str> = sentences.lines().collect();
-                        // let first_sentence: Vec<&str> = lines[0].split('\t').collect();
-                        // print!("{:?}", first_sentence);
-                    }
-                    Err(_e) => {
-                        // println!("{:?}", e);
-                    }
+            Dict::Details {
+                word,
+                example_sentences,
+            } => {
+                let sentences = match example_sentences.get(word) {
+                    Some(sentences) => sentences.to_owned(),
+                    None => Vec::new(),
                 };
-                let column = Column::new()
+                let mut column = Column::new()
                     .spacing(5)
                     .align_items(Align::Start)
                     .height(Length::Fill)
                     .push(Text::new(format!("{}", word)).size(50).width(Length::Fill));
+                for sentence in sentences.iter().take(5) {
+                    let japanese_row = Row::new().spacing(20).push(
+                        Text::new(&sentence.japanese_text)
+                            .size(30)
+                            .width(Length::Fill),
+                    );
+                    let english_row = Row::new().spacing(20).push(
+                        Text::new(&sentence.english_text)
+                            .size(30)
+                            .width(Length::Fill),
+                    );
+                    let spacing_row = Row::new().push(Space::new(Length::Fill, Length::Units(20)));
+                    column = column.push(japanese_row);
+                    column = column.push(english_row);
+                    column = column.push(spacing_row);
+                }
                 column
             }
         };
