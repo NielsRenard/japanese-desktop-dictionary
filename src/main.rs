@@ -109,45 +109,34 @@ fn parse_index_word(input: &str) -> IResult<&str, IndexWord> {
     let (input, headword) = is_not("([{~| \n")(input)?;
 
     let (input, (index_elements, _)) = many_till(parse_index_element, one_of(" \n"))(input)?;
-    let reading_option: Option<&IndexElement> = index_elements.iter().find(|e| match e {
-        IndexElement::Reading(_) => true,
-        _ => false,
-    });
-
+    let reading_option: Option<&IndexElement> = index_elements
+        .iter()
+        .find(|e| matches!(e, IndexElement::Reading(_)));
     let reading: Option<String> = match reading_option {
         Some(IndexElement::Reading(reading)) => Some(reading.to_string()),
         _ => None,
     };
 
-    let sense_option: Option<&IndexElement> = index_elements.iter().find(|e| match e {
-        IndexElement::Sense(_) => true,
-        _ => false,
-    });
-
+    let sense_option: Option<&IndexElement> = index_elements
+        .iter()
+        .find(|e| matches!(e, IndexElement::Sense(_)));
     let sense_number: Option<i32> = match sense_option {
         Some(IndexElement::Sense(number)) => Some(*number),
         _ => None,
     };
 
-    let form_option: Option<&IndexElement> = index_elements.iter().find(|e| match e {
-        IndexElement::FormInSentence(_) => true,
-        _ => false,
-    });
-
+    let form_option: Option<&IndexElement> = index_elements
+        .iter()
+        .find(|e| matches!(e, IndexElement::FormInSentence(_)));
     let form_in_sentence: Option<String> = match form_option {
         Some(IndexElement::FormInSentence(form)) => Some(form.to_string()),
         _ => None,
     };
 
-    let good_option: Option<&IndexElement> = index_elements.iter().find(|e| match e {
-        IndexElement::GoodAndChecked => true,
-        _ => false,
-    });
-
-    let good_and_checked: bool = match good_option {
-        Some(IndexElement::GoodAndChecked) => true,
-        _ => false,
-    };
+    let good_option: Option<&IndexElement> = index_elements
+        .iter()
+        .find(|e| matches!(e, IndexElement::GoodAndChecked));
+    let good_and_checked: bool = matches!(good_option, Some(IndexElement::GoodAndChecked));
 
     let index_word = IndexWord {
         headword: headword.to_string(),
@@ -194,14 +183,14 @@ fn parse_index_element(input: &str) -> IResult<&str, IndexElement> {
 }
 
 fn match_delimiter(delimiter_open: char) -> char {
-    return match delimiter_open {
+    match delimiter_open {
         '(' => ')',
         '[' => ']',
         '{' => '}',
         '~' => '~',
         '\n' => '\n',
         _ => '_',
-    };
+    }
 }
 
 fn wwwjdict_parser(input: &str) -> IResult<&str, ExampleSentence> {
@@ -573,7 +562,7 @@ impl Application for Dict {
                     for index_word in &sentence.indices {
                         words_to_sentences
                             .entry(index_word.headword.to_owned())
-                            .or_insert(Vec::new())
+                            .or_insert_with(Vec::new)
                             .push(sentence.to_owned());
                     }
                 }
@@ -611,8 +600,7 @@ impl Application for Dict {
                 }
                 Message::SearchButtonPressed => {
                     let query = input_value.clone();
-                    let old_example_sentences =
-                        std::mem::replace(example_sentences, Default::default());
+                    let old_example_sentences = std::mem::take(example_sentences);
                     *self = Dict::Loading {
                         example_sentences: old_example_sentences,
                     };
@@ -639,8 +627,7 @@ impl Application for Dict {
                             translation.clone(),
                         ));
                     }
-                    let old_example_sentences =
-                        std::mem::replace(example_sentences, Default::default());
+                    let old_example_sentences = std::mem::take(example_sentences);
                     *self = Dict::Loaded {
                         result: jisho_result,
                         button: button::State::new(),
@@ -662,8 +649,7 @@ impl Application for Dict {
                 example_sentences, ..
             } => match message {
                 Message::SearchAgainButtonPressed => {
-                    let old_example_sentences =
-                        std::mem::replace(example_sentences, Default::default());
+                    let old_example_sentences = std::mem::take(example_sentences);
                     *self = Dict::Waiting {
                         input: text_input::State::new(),
                         input_value: "".to_string(),
@@ -676,8 +662,7 @@ impl Application for Dict {
                     std::process::exit(0);
                 }
                 Message::DetailsButtonPressed(word) => {
-                    let old_example_sentences =
-                        std::mem::replace(example_sentences, Default::default());
+                    let old_example_sentences = std::mem::take(example_sentences);
                     *self = Dict::Details {
                         word,
                         example_sentences: old_example_sentences,
@@ -690,8 +675,7 @@ impl Application for Dict {
                 example_sentences, ..
             } => match message {
                 Message::EscapeButtonPressed => {
-                    let example_sentences =
-                        std::mem::replace(example_sentences, Default::default());
+                    let example_sentences = std::mem::take(example_sentences);
                     *self = Dict::Waiting {
                         input: text_input::State::new(),
                         input_value: "".to_string(),
@@ -825,7 +809,7 @@ impl Application for Dict {
                     .spacing(5)
                     .align_items(Align::Start)
                     .height(Length::Fill)
-                    .push(Text::new(format!("{}", word)).size(50).width(Length::Fill));
+                    .push(Text::new(word.to_string()).size(50).width(Length::Fill));
                 for sentence in sentences.iter().take(5) {
                     let japanese_row = Row::new().spacing(20).push(
                         Text::new(&sentence.japanese_text)
