@@ -600,9 +600,9 @@ impl Application for Dict {
                 }
                 Message::SearchButtonPressed => {
                     let query = input_value.clone();
-                    let old_example_sentences = std::mem::take(example_sentences);
+                    let state_swap_example_sentences = std::mem::take(example_sentences);
                     *self = Dict::Loading {
-                        example_sentences: old_example_sentences,
+                        example_sentences: state_swap_example_sentences,
                     };
                     println!("{}", query);
                     Command::perform(Dict::search(query), Message::WordFound)
@@ -627,12 +627,12 @@ impl Application for Dict {
                             translation.clone(),
                         ));
                     }
-                    let old_example_sentences = std::mem::take(example_sentences);
+                    let state_swap_example_sentences = std::mem::take(example_sentences);
                     *self = Dict::Loaded {
                         result: jisho_result,
                         button: button::State::new(),
                         search_results,
-                        example_sentences: old_example_sentences,
+                        example_sentences: state_swap_example_sentences,
                     };
                     Command::none()
                 }
@@ -649,12 +649,12 @@ impl Application for Dict {
                 example_sentences, ..
             } => match message {
                 Message::SearchAgainButtonPressed => {
-                    let old_example_sentences = std::mem::take(example_sentences);
+                    let state_swap_example_sentences = std::mem::take(example_sentences);
                     *self = Dict::Waiting {
                         input: text_input::State::new(),
                         input_value: "".to_string(),
                         button: button::State::new(),
-                        example_sentences: old_example_sentences,
+                        example_sentences: state_swap_example_sentences,
                     };
                     Command::none()
                 }
@@ -662,10 +662,10 @@ impl Application for Dict {
                     std::process::exit(0);
                 }
                 Message::DetailsButtonPressed(word) => {
-                    let old_example_sentences = std::mem::take(example_sentences);
+                    let state_swap_example_sentences = std::mem::take(example_sentences);
                     *self = Dict::Details {
                         word,
-                        example_sentences: old_example_sentences,
+                        example_sentences: state_swap_example_sentences,
                     };
                     Command::none()
                 }
