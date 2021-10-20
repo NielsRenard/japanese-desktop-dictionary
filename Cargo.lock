@@ -79,8 +79,8 @@ version = "0.1.0"
 dependencies = [
  "iced",
  "iced_native",
- "iced_web",
  "nom",
+ "rayon",
  "reqwest",
  "serde",
  "serde_json",

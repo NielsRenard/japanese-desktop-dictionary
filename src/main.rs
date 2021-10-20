@@ -3,6 +3,7 @@ use crate::jisho::JishoResponse;
 mod example_sentences;
 use crate::example_sentences::{wwwjdict_parser, ExampleSentence};
 extern crate nom;
+use rayon::prelude::*;
 
 use std::collections::HashMap;
 
@@ -95,6 +96,7 @@ pub fn main() -> iced::Result {
     })
 }
 
+
 // Iterator yielding every line in a string. The line includes newline character(s).
 // https://stackoverflow.com/questions/40455997/iterate-over-lines-in-a-string-including-the-newline-characters
 #[derive(Debug, Clone)]
@@ -107,7 +109,7 @@ impl<'a> LinesWithEndings<'a> {
         LinesWithEndings { input }
     }
 }
-
+    
 impl<'a> Iterator for LinesWithEndings<'a> {
     type Item = &'a str;
 
@@ -141,13 +143,20 @@ impl Application for Dict {
                 let sentences = sentences.replace("	 ", "	"); // tab + space becomes just tab
                 let sentences = sentences.replace(" \n", "\n"); // space + newline becomes just newline
                 let sentences = sentences.replace("  ", " "); // two spaces becomes one space
-                let lines = LinesWithEndings::from(&sentences);
-
+                let sentences = sentences + &"\n".to_string(); // add newline to keep parser simple (kind of hacky)
+                let lines: Vec<_> = LinesWithEndings::from(&sentences).collect();
+                println!("start parsing wwwjdict example sentences...");
+                let start_parsing = std::time::SystemTime::now();
                 let parsed: Vec<ExampleSentence> = lines
-                    .into_iter()
+                    .into_par_iter()                    
                     .map(|line| wwwjdict_parser(line).unwrap().1)
                     .collect();
-
+                println!(
+                    "parsed {} example sentences in: {} milliseconds",
+                    parsed.len(),
+                    start_parsing.elapsed().unwrap().as_millis()
+                );
+                let start_indexing = std::time::SystemTime::now();
                 let mut words_to_sentences: HashMap<String, Vec<ExampleSentence>> = HashMap::new();
                 for sentence in parsed {
                     for index_word in &sentence.indices {
@@ -157,6 +166,10 @@ impl Application for Dict {
                             .push(sentence.to_owned());
                     }
                 }
+                println!(
+                    "indexing example sentences took: {} milliseconds",
+                    start_indexing.elapsed().unwrap().as_millis()
+                );
                 words_to_sentences
             }
             Err(e) => {
