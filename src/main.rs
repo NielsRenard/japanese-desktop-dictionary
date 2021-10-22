@@ -4,7 +4,6 @@ mod example_sentences;
 use crate::example_sentences::{wwwjdict_parser, ExampleSentence};
 extern crate nom;
 use rayon::prelude::*;
-
 use std::collections::HashMap;
 
 use iced::{
@@ -12,12 +11,12 @@ use iced::{
     Container, Element, HorizontalAlignment, Length, Row, Settings, Space, Subscription, Text,
     TextInput,
 };
-use std::fs::read_to_string;
 
 use iced_native::{subscription, Event};
 
 #[derive(Debug)]
 enum Dict {
+    Startup {},
     Waiting {
         input: text_input::State,
         input_value: String,
@@ -35,15 +34,17 @@ enum Dict {
     },
     Details {
         word: String,
+        reading: String,
         example_sentences: SentenceMap,
     },
 }
 
 #[derive(Debug, Clone)]
 enum Message {
+    FoundExampleSentences(Result<String, Error>),
     InputChanged(String),
     SearchButtonPressed,
-    DetailsButtonPressed(String),
+    DetailsButtonPressed(String, String),
     EscapeButtonPressed,
     WordFound(Result<JishoResponse, Error>),
     SearchAgainButtonPressed,
@@ -96,7 +97,6 @@ pub fn main() -> iced::Result {
     })
 }
 
-
 // Iterator yielding every line in a string. The line includes newline character(s).
 // https://stackoverflow.com/questions/40455997/iterate-over-lines-in-a-string-including-the-newline-characters
 #[derive(Debug, Clone)]
@@ -109,7 +109,7 @@ impl<'a> LinesWithEndings<'a> {
         LinesWithEndings { input }
     }
 }
-    
+
 impl<'a> Iterator for LinesWithEndings<'a> {
     type Item = &'a str;
 
@@ -135,56 +135,13 @@ impl Application for Dict {
     type Flags = ();
 
     fn new(_flags: ()) -> (Self, Command<Message>) {
-        // http://www.edrdg.org/wiki/index.php/Sentence-Dictionary_Linking
-        let example_sentences_raw = read_to_string("resources/wwwjdic.csv");
-        let example_sentences = match example_sentences_raw {
-            Ok(sentences) => {
-                // a little pre-processing for dirtiness in the wwwjdict data
-                let sentences = sentences.replace("	 ", "	"); // tab + space becomes just tab
-                let sentences = sentences.replace(" \n", "\n"); // space + newline becomes just newline
-                let sentences = sentences.replace("  ", " "); // two spaces becomes one space
-                let sentences = sentences + &"\n".to_string(); // add newline to keep parser simple (kind of hacky)
-                let lines: Vec<_> = LinesWithEndings::from(&sentences).collect();
-                println!("start parsing wwwjdict example sentences...");
-                let start_parsing = std::time::SystemTime::now();
-                let parsed: Vec<ExampleSentence> = lines
-                    .into_par_iter()                    
-                    .map(|line| wwwjdict_parser(line).unwrap().1)
-                    .collect();
-                println!(
-                    "parsed {} example sentences in: {} milliseconds",
-                    parsed.len(),
-                    start_parsing.elapsed().unwrap().as_millis()
-                );
-                let start_indexing = std::time::SystemTime::now();
-                let mut words_to_sentences: HashMap<String, Vec<ExampleSentence>> = HashMap::new();
-                for sentence in parsed {
-                    for index_word in &sentence.indices {
-                        words_to_sentences
-                            .entry(index_word.headword.to_owned())
-                            .or_insert_with(Vec::new)
-                            .push(sentence.to_owned());
-                    }
-                }
-                println!(
-                    "indexing example sentences took: {} milliseconds",
-                    start_indexing.elapsed().unwrap().as_millis()
-                );
-                words_to_sentences
-            }
-            Err(e) => {
-                println!("{:?}", e);
-                SentenceMap::new()
-            }
-        };
-        let dict = Dict::Waiting {
-            input: text_input::State::new(),
-            input_value: "".to_string(),
-            button: button::State::new(),
-            example_sentences,
-        };
-
-        (dict, Command::none())
+        (
+            Dict::Startup {},
+            (Command::perform(
+                Dict::load_example_sentences(),
+                Message::FoundExampleSentences,
+            )),
+        )
     }
 
     fn title(&self) -> String {
@@ -193,6 +150,32 @@ impl Application for Dict {
 
     fn update(&mut self, message: Message, _clipboard: &mut Clipboard) -> Command<Message> {
         match self {
+            Dict::Startup {} => match message {
+                Message::FoundExampleSentences(result) => match result {
+                    Ok(sentences) => {
+                        let sentence_map: SentenceMap = Self::parse_example_sentences(sentences);
+
+                        println!("startup: finished loading sentences!");
+                        *self = Dict::Waiting {
+                            input: text_input::State::new(),
+                            input_value: "".to_string(),
+                            button: button::State::new(),
+                            example_sentences: sentence_map,
+                        };
+                        Command::none()
+                    }
+                    Err(_error) => {
+                        // loading/parsing sentences somehow failed
+                        // TODO: do something
+                        println!("startup: wtf error!");
+                        Command::none()
+                    }
+                },
+                _ => {
+                    println!("startup: sentences not loaded yet!");
+                    Command::none()
+                }
+            },
             Dict::Waiting {
                 input_value,
                 example_sentences,
@@ -265,10 +248,11 @@ impl Application for Dict {
                 Message::EscapeButtonPressed => {
                     std::process::exit(0);
                 }
-                Message::DetailsButtonPressed(word) => {
+                Message::DetailsButtonPressed(word, reading) => {
                     let state_swap_example_sentences = std::mem::take(example_sentences);
                     *self = Dict::Details {
                         word,
+                        reading,
                         example_sentences: state_swap_example_sentences,
                     };
                     Command::none()
@@ -312,6 +296,9 @@ impl Application for Dict {
 
     fn view(&mut self) -> Element<Message> {
         let content = match self {
+            Dict::Startup {} => Column::new()
+                .width(Length::Shrink)
+                .push(Text::new("Loading example sentences, just a sec.").size(40)),
             Dict::Loading {
                 example_sentences: _,
             } => Column::new()
@@ -327,6 +314,7 @@ impl Application for Dict {
                 .height(Length::Fill)
                 .align_items(Align::Start)
                 .padding(10)
+                .push(Text::new("Search the dictionary:").size(40))
                 .push(
                     Row::new().spacing(10).push(
                         TextInput::new(
@@ -385,7 +373,7 @@ impl Application for Dict {
                         .push(button(
                             &mut i.details_button,
                             "details".to_string(),
-                            Message::DetailsButtonPressed(i.japanese.clone()),
+                            Message::DetailsButtonPressed(i.japanese.clone(), i.reading.clone()),
                         ))
                         .push(Text::new(i.japanese.clone()).size(30).width(Length::Fill))
                         .push(Text::new(i.reading.clone()).size(30).width(Length::Fill))
@@ -403,6 +391,7 @@ impl Application for Dict {
             }
             Dict::Details {
                 word,
+                reading,
                 example_sentences,
             } => {
                 let sentences = match example_sentences.get(word) {
@@ -413,7 +402,19 @@ impl Application for Dict {
                     .spacing(5)
                     .align_items(Align::Start)
                     .height(Length::Fill)
-                    .push(Text::new(word.to_string()).size(50).width(Length::Fill));
+                    .push(
+                        Row::new()
+                            .push(
+                                Text::new(word.to_string())
+                                    .size(50)
+                                    .width(Length::FillPortion(1)),
+                            )
+                            .push(
+                                Text::new(reading.to_string())
+                                    .size(35)
+                                    .width(Length::FillPortion(4)),
+                            ),
+                    );
                 for sentence in sentences.iter().take(5) {
                     let japanese_row = Row::new().spacing(20).push(
                         Text::new(&sentence.japanese_text)
@@ -452,11 +453,69 @@ impl Dict {
         // println!("{:#?}", resp);
         Ok(resp)
     }
+
+    async fn load_example_sentences() -> Result<String, Error> {
+        // let mut file = File::open("resources/wwwjdic.csv").await?;
+        // let mut buffer = String::new();
+        // file.read_to_string(&mut buffer).await?;
+        // Ok(buffer)
+        use async_std::prelude::*;
+        let mut contents = String::new();
+
+        let mut file = async_std::fs::File::open("resources/wwwjdic.csv")
+            .await
+            .map_err(|_| Error::FileNotFoundError)?;
+
+        file.read_to_string(&mut contents)
+            .await
+            .map_err(|_| Error::ReadFileError)?;
+
+        Ok(contents)
+    }
+
+    fn parse_example_sentences(sentences: String) -> SentenceMap {
+        // http://www.edrdg.org/wiki/index.php/Sentence-Dictionary_Linking
+        // a little pre-processing for dirtiness in the wwwjdict data
+        let sentences = sentences.replace("	 ", "	"); // tab + space becomes just tab
+        let sentences = sentences.replace(" \n", "\n"); // space + newline becomes just newline
+        let sentences = sentences.replace("  ", " "); // two spaces becomes one space
+        let sentences = sentences + &"\n".to_string(); // add newline to keep parser simple (kind of hacky)
+        let lines: Vec<_> = LinesWithEndings::from(&sentences).collect();
+        println!("start parsing wwwjdict example sentences...");
+        let start_parsing = std::time::SystemTime::now();
+        let parsed: Vec<ExampleSentence> = lines
+            .into_par_iter()
+            .map(|line| wwwjdict_parser(line).unwrap().1)
+            .collect();
+        println!(
+            "parsed {} example sentences in: {} milliseconds",
+            parsed.len(),
+            start_parsing.elapsed().unwrap().as_millis()
+        );
+        let start_indexing = std::time::SystemTime::now();
+        let mut words_to_sentences: HashMap<String, Vec<ExampleSentence>> = HashMap::new();
+        for sentence in parsed {
+            for index_word in &sentence.indices {
+                words_to_sentences
+                    .entry(index_word.headword.to_owned())
+                    .or_insert_with(Vec::new)
+                    .push(sentence.to_owned());
+            }
+        }
+        println!(
+            "indexing example sentences took: {} milliseconds",
+            start_indexing.elapsed().unwrap().as_millis()
+        );
+        words_to_sentences
+    }
 }
 
 #[derive(Debug, Clone)]
 enum Error {
     ApiError,
+    FileNotFoundError,
+    ReadFileError,
+    ParseError,
 }
 
 impl From<reqwest::Error> for Error {
