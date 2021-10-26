@@ -1,9 +1,11 @@
+use std::error::Error;
 mod jisho;
 use crate::jisho::JishoResponse;
 mod example_sentences;
 use crate::example_sentences::{wwwjdict_parser, ExampleSentence};
 extern crate nom;
 use rayon::prelude::*;
+use serde::Serialize;
 use std::collections::HashMap;
 
 use iced::{
@@ -34,19 +36,22 @@ enum Dict {
     Details {
         word: String,
         reading: String,
+        translations: Vec<String>,
         search_results: Vec<SearchResult>,
         example_sentences: SentenceMap,
+        create_flashcard_button: button::State,
     },
 }
 
 #[derive(Debug, Clone)]
 enum Message {
-    FoundExampleSentences(Result<String, Error>),
+    FoundExampleSentences(Result<String, DictError>),
     InputChanged(String),
     SearchButtonPressed,
-    DetailsButtonPressed(String, String),
+    DetailsButtonPressed(String, String, Vec<String>),
+    CreateFlashcardButtonPressed(ExampleSentence),
     EscapeButtonPressed,
-    WordFound(Result<JishoResponse, Error>),
+    WordFound(Result<JishoResponse, DictError>),
     SearchAgainButtonPressed,
 }
 
@@ -55,18 +60,18 @@ struct SearchResult {
     pub details_button: button::State,
     pub japanese: String,
     pub reading: String,
-    pub translation: String,
+    pub translations: Vec<String>,
 }
 
 type SentenceMap = HashMap<String, Vec<ExampleSentence>>;
 
 impl SearchResult {
-    fn new(japanese: String, reading: String, translation: String) -> Self {
+    fn new(japanese: String, reading: String, translations: Vec<String>) -> Self {
         Self {
             details_button: button::State::new(),
             japanese,
             reading,
-            translation,
+            translations,
         }
     }
     fn _to_row(&self) -> Row<Message> {
@@ -75,7 +80,7 @@ impl SearchResult {
             .push(Text::new(&self.japanese).size(30).width(Length::Fill))
             .push(Text::new(&self.reading).size(30).width(Length::Fill))
             .push(
-                Text::new(&self.translation)
+                Text::new(&self.translations[0])
                     .size(30)
                     .width(Length::Fill)
                     .horizontal_alignment(HorizontalAlignment::Left),
@@ -207,7 +212,7 @@ impl Application for Dict {
                     for i in &jisho_result.data {
                         let japanese = &i.slug;
                         let reading = &i.japanese[0].reading.clone().unwrap_or_default();
-                        let translation = &i.senses[0].english_definitions[0];
+                        let translation = &i.senses[0].english_definitions;
                         search_results.push(SearchResult::new(
                             japanese.clone(),
                             reading.clone(),
@@ -249,12 +254,14 @@ impl Application for Dict {
                 Message::EscapeButtonPressed => {
                     std::process::exit(0);
                 }
-                Message::DetailsButtonPressed(word, reading) => {
+                Message::DetailsButtonPressed(word, reading, translations) => {
                     *self = Dict::Details {
                         word,
                         reading,
+                        translations,
                         search_results: std::mem::take(search_results),
                         example_sentences: std::mem::take(example_sentences),
+                        create_flashcard_button: button::State::new(),
                     };
                     Command::none()
                 }
@@ -263,6 +270,9 @@ impl Application for Dict {
             Dict::Details {
                 example_sentences,
                 search_results,
+                word,
+                reading,
+                translations,
                 ..
             } => match message {
                 Message::EscapeButtonPressed => {
@@ -271,6 +281,18 @@ impl Application for Dict {
                         example_sentences: std::mem::take(example_sentences),
                         search_results: std::mem::take(search_results),
                     };
+                    Command::none()
+                }
+                Message::CreateFlashcardButtonPressed(example_sentence) => {
+                    let card = BasicJapaneseFlashcard {
+                        vocab: word,
+                        vocab_kana: reading,
+                        vocab_translation: &translations.join(" / "),
+                        part_of_speech: "TODO",
+                        sentence: &example_sentence.japanese_text,
+                        sentence_translation: &example_sentence.english_text,
+                    };
+                    let _ = store_word_to_csv(&card);
                     Command::none()
                 }
                 _ => Command::none(),
@@ -373,12 +395,16 @@ impl Application for Dict {
                         .push(button(
                             &mut i.details_button,
                             "details".to_string(),
-                            Message::DetailsButtonPressed(i.japanese.clone(), i.reading.clone()),
+                            Message::DetailsButtonPressed(
+                                i.japanese.clone(),
+                                i.reading.clone(),
+                                i.translations.clone(),
+                            ),
                         ))
                         .push(Text::new(i.japanese.clone()).size(30).width(Length::Fill))
                         .push(Text::new(i.reading.clone()).size(30).width(Length::Fill))
                         .push(
-                            Text::new(i.translation.clone())
+                            Text::new(i.translations.clone().join(" / "))
                                 .size(30)
                                 .width(Length::Fill)
                                 .horizontal_alignment(HorizontalAlignment::Left),
@@ -393,12 +419,18 @@ impl Application for Dict {
                 word,
                 reading,
                 example_sentences,
+                create_flashcard_button,
                 ..
             } => {
                 let sentences = match example_sentences.get(word) {
                     Some(sentences) => sentences.to_owned(),
                     None => Vec::new(),
                 };
+
+                let shortest_sentence = sentences
+                    .iter()
+                    .min_by(|s1, s2| (s1.english_text.len().cmp(&s2.english_text.len())))
+                    .unwrap();
                 let mut column = Column::new()
                     .spacing(5)
                     .align_items(Align::Start)
@@ -415,7 +447,20 @@ impl Application for Dict {
                                     .size(35)
                                     .width(Length::FillPortion(4)),
                             ),
+                    )
+                    .push(
+                        Button::new(
+                            create_flashcard_button,
+                            Text::new("Save to Anki flash card")
+                                .width(Length::Fill)
+                                .horizontal_alignment(HorizontalAlignment::Center)
+                                .size(16),
+                        )
+                        .on_press(Message::CreateFlashcardButtonPressed(
+                            shortest_sentence.clone(),
+                        )),
                     );
+
                 for sentence in sentences.iter().take(5) {
                     let japanese_row = Row::new().spacing(20).push(
                         Text::new(&sentence.japanese_text)
@@ -427,6 +472,7 @@ impl Application for Dict {
                             .size(30)
                             .width(Length::Fill),
                     );
+
                     let spacing_row = Row::new().push(Space::new(Length::Fill, Length::Units(20)));
                     column = column.push(japanese_row);
                     column = column.push(english_row);
@@ -445,7 +491,7 @@ impl Application for Dict {
 }
 
 impl Dict {
-    async fn search(query: String) -> Result<JishoResponse, Error> {
+    async fn search(query: String) -> Result<JishoResponse, DictError> {
         let jisho_base_url = "https://jisho.org/api/v1/search/words?keyword=".to_string();
         let resp: JishoResponse = reqwest::get(jisho_base_url + &query[..])
             .await?
@@ -455,7 +501,7 @@ impl Dict {
         Ok(resp)
     }
 
-    async fn load_example_sentences() -> Result<String, Error> {
+    async fn load_example_sentences() -> Result<String, DictError> {
         // let mut file = File::open("resources/wwwjdic.csv").await?;
         // let mut buffer = String::new();
         // file.read_to_string(&mut buffer).await?;
@@ -465,11 +511,11 @@ impl Dict {
 
         let mut file = async_std::fs::File::open("resources/wwwjdic.csv")
             .await
-            .map_err(|_| Error::FileNotFoundError)?;
+            .map_err(|_| DictError::FileNotFoundError)?;
 
         file.read_to_string(&mut contents)
             .await
-            .map_err(|_| Error::ReadFileError)?;
+            .map_err(|_| DictError::ReadFileError)?;
 
         Ok(contents)
     }
@@ -512,16 +558,16 @@ impl Dict {
 }
 
 #[derive(Debug, Clone)]
-enum Error {
+enum DictError {
     ApiError,
     FileNotFoundError,
     ReadFileError,
 }
 
-impl From<reqwest::Error> for Error {
-    fn from(error: reqwest::Error) -> Error {
+impl From<reqwest::Error> for DictError {
+    fn from(error: reqwest::Error) -> DictError {
         dbg!(error);
-        Error::ApiError
+        DictError::ApiError
     }
 }
 
@@ -533,4 +579,28 @@ fn handle_hotkey(key_code: keyboard::KeyCode) -> Option<Message> {
         KeyCode::Escape => Some(Message::EscapeButtonPressed),
         _ => None,
     }
+}
+
+#[derive(Serialize)]
+struct BasicJapaneseFlashcard<'a> {
+    vocab: &'a str,
+    vocab_kana: &'a str,
+    vocab_translation: &'a str,
+    part_of_speech: &'a str,
+    sentence: &'a str,
+    sentence_translation: &'a str,
+}
+
+fn store_word_to_csv<T: Serialize>(card: &T) -> Result<(), Box<dyn Error>> {
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .append(true)
+        .open("japanese_words_anki_import.txt")
+        .unwrap();
+    let mut wtr = csv::WriterBuilder::new()
+        .has_headers(false)
+        .from_writer(file);
+    wtr.serialize(card)?;
+    Ok(())
 }
