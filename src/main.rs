@@ -27,7 +27,6 @@ enum Dict {
         example_sentences: SentenceMap,
     },
     Loaded {
-        result: JishoResponse,
         button: button::State,
         search_results: Vec<SearchResult>,
         example_sentences: SentenceMap,
@@ -35,6 +34,7 @@ enum Dict {
     Details {
         word: String,
         reading: String,
+        search_results: Vec<SearchResult>,
         example_sentences: SentenceMap,
     },
 }
@@ -216,7 +216,6 @@ impl Application for Dict {
                     }
                     let state_swap_example_sentences = std::mem::take(example_sentences);
                     *self = Dict::Loaded {
-                        result: jisho_result,
                         button: button::State::new(),
                         search_results,
                         example_sentences: state_swap_example_sentences,
@@ -233,7 +232,9 @@ impl Application for Dict {
                 _ => Command::none(),
             },
             Dict::Loaded {
-                example_sentences, ..
+                example_sentences,
+                search_results,
+                ..
             } => match message {
                 Message::SearchAgainButtonPressed => {
                     let state_swap_example_sentences = std::mem::take(example_sentences);
@@ -249,26 +250,26 @@ impl Application for Dict {
                     std::process::exit(0);
                 }
                 Message::DetailsButtonPressed(word, reading) => {
-                    let state_swap_example_sentences = std::mem::take(example_sentences);
                     *self = Dict::Details {
                         word,
                         reading,
-                        example_sentences: state_swap_example_sentences,
+                        search_results: std::mem::take(search_results),
+                        example_sentences: std::mem::take(example_sentences),
                     };
                     Command::none()
                 }
                 _ => Command::none(),
             },
             Dict::Details {
-                example_sentences, ..
+                example_sentences,
+                search_results,
+                ..
             } => match message {
                 Message::EscapeButtonPressed => {
-                    let example_sentences = std::mem::take(example_sentences);
-                    *self = Dict::Waiting {
-                        input: text_input::State::new(),
-                        input_value: "".to_string(),
+                    *self = Dict::Loaded {
                         button: button::State::new(),
-                        example_sentences,
+                        example_sentences: std::mem::take(example_sentences),
+                        search_results: std::mem::take(search_results),
                     };
                     Command::none()
                 }
@@ -334,7 +335,6 @@ impl Application for Dict {
                 ),
 
             Dict::Loaded {
-                result,
                 button,
                 search_results,
                 example_sentences: _,
@@ -349,7 +349,7 @@ impl Application for Dict {
                             .on_press(Message::SearchAgainButtonPressed),
                     )
                     .push(
-                        Text::new(format!("{} results:", &result.data.len()))
+                        Text::new(format!("{} results:", &search_results.len()))
                             .size(30)
                             .width(Length::Fill),
                     );
@@ -393,6 +393,7 @@ impl Application for Dict {
                 word,
                 reading,
                 example_sentences,
+                ..
             } => {
                 let sentences = match example_sentences.get(word) {
                     Some(sentences) => sentences.to_owned(),
@@ -515,7 +516,6 @@ enum Error {
     ApiError,
     FileNotFoundError,
     ReadFileError,
-    ParseError,
 }
 
 impl From<reqwest::Error> for Error {
