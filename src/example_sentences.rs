@@ -5,7 +5,7 @@ use nom::combinator::eof;
 use nom::multi::many_till;
 use nom::IResult;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Default)]
 pub struct ExampleSentence {
     pub japanese_sentence_id: u32,
     pub english_sentence_id: u32,

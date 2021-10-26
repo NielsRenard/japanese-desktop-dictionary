@@ -427,10 +427,17 @@ impl Application for Dict {
                     None => Vec::new(),
                 };
 
-                let shortest_sentence = sentences
+                let maybe_shortest_sentence: Option<_> = sentences
                     .iter()
-                    .min_by(|s1, s2| (s1.english_text.len().cmp(&s2.english_text.len())))
-                    .unwrap();
+                    .min_by(|s1, s2| (s1.english_text.len().cmp(&s2.english_text.len())));
+
+                let shortest_sentence: ExampleSentence =
+                    if let Some(sentence) = maybe_shortest_sentence {
+                        sentence.clone()
+                    } else {
+                        ExampleSentence::default()
+                    };
+
                 let mut column = Column::new()
                     .spacing(5)
                     .align_items(Align::Start)
@@ -456,9 +463,7 @@ impl Application for Dict {
                                 .horizontal_alignment(HorizontalAlignment::Center)
                                 .size(16),
                         )
-                        .on_press(Message::CreateFlashcardButtonPressed(
-                            shortest_sentence.clone(),
-                        )),
+                        .on_press(Message::CreateFlashcardButtonPressed(shortest_sentence)),
                     );
 
                 for sentence in sentences.iter().take(5) {
@@ -511,11 +516,11 @@ impl Dict {
 
         let mut file = async_std::fs::File::open("resources/wwwjdic.csv")
             .await
-            .map_err(|_| DictError::FileNotFoundError)?;
+            .map_err(|_| DictError::FileNotFound)?;
 
         file.read_to_string(&mut contents)
             .await
-            .map_err(|_| DictError::ReadFileError)?;
+            .map_err(|_| DictError::ReadFile)?;
 
         Ok(contents)
     }
@@ -559,15 +564,15 @@ impl Dict {
 
 #[derive(Debug, Clone)]
 enum DictError {
-    ApiError,
-    FileNotFoundError,
-    ReadFileError,
+    SearchApi,
+    FileNotFound,
+    ReadFile,
 }
 
 impl From<reqwest::Error> for DictError {
     fn from(error: reqwest::Error) -> DictError {
         dbg!(error);
-        DictError::ApiError
+        DictError::SearchApi
     }
 }
 
