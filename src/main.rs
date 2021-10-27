@@ -9,9 +9,9 @@ use serde::Serialize;
 use std::collections::HashMap;
 
 use iced::{
-    button, keyboard, text_input, window, Align, Application, Button, Clipboard, Column, Command,
-    Container, Element, HorizontalAlignment, Length, Row, Settings, Space, Subscription, Text,
-    TextInput,
+    button, keyboard, scrollable, text_input, window, Align, Application, Button, Clipboard,
+    Column, Command, Container, Element, HorizontalAlignment, Length, Row, Scrollable, Settings,
+    Space, Subscription, Text, TextInput,
 };
 
 use iced_native::{subscription, Event};
@@ -30,16 +30,18 @@ enum Dict {
     },
     Loaded {
         button: button::State,
+        scroll: scrollable::State,
         search_results: Vec<SearchResult>,
         example_sentences: SentenceMap,
     },
     Details {
+        create_flashcard_button: button::State,
+        scroll: scrollable::State,
         word: String,
         reading: String,
         translations: Vec<String>,
         search_results: Vec<SearchResult>,
         example_sentences: SentenceMap,
-        create_flashcard_button: button::State,
     },
 }
 
@@ -222,6 +224,7 @@ impl Application for Dict {
                     let state_swap_example_sentences = std::mem::take(example_sentences);
                     *self = Dict::Loaded {
                         button: button::State::new(),
+                        scroll: scrollable::State::new(),
                         search_results,
                         example_sentences: state_swap_example_sentences,
                     };
@@ -256,12 +259,13 @@ impl Application for Dict {
                 }
                 Message::DetailsButtonPressed(word, reading, translations) => {
                     *self = Dict::Details {
+                        scroll: scrollable::State::new(),
+                        create_flashcard_button: button::State::new(),
                         word,
                         reading,
                         translations,
                         search_results: std::mem::take(search_results),
                         example_sentences: std::mem::take(example_sentences),
-                        create_flashcard_button: button::State::new(),
                     };
                     Command::none()
                 }
@@ -278,6 +282,7 @@ impl Application for Dict {
                 Message::EscapeButtonPressed => {
                     *self = Dict::Loaded {
                         button: button::State::new(),
+                        scroll: scrollable::State::new(),
                         example_sentences: std::mem::take(example_sentences),
                         search_results: std::mem::take(search_results),
                     };
@@ -358,10 +363,11 @@ impl Application for Dict {
 
             Dict::Loaded {
                 button,
+                scroll,
                 search_results,
                 example_sentences: _,
             } => {
-                let mut column = Column::new()
+                let mut content = Column::new()
                     .spacing(5)
                     .align_items(Align::Start)
                     .height(Length::Fill)
@@ -410,16 +416,25 @@ impl Application for Dict {
                                 .horizontal_alignment(HorizontalAlignment::Left),
                         );
 
-                    column = column.push(row);
+                    content = content.push(row);
                 }
 
-                column
+                let scrollable = Scrollable::new(scroll)
+                    .push(Container::new(content).width(Length::Fill).center_x());
+
+                Column::new()
+                    .spacing(5)
+                    .align_items(Align::Start)
+                    .height(Length::Fill)
+                    .push(scrollable)
             }
             Dict::Details {
                 word,
                 reading,
+                translations,
                 example_sentences,
                 create_flashcard_button,
+                scroll,
                 ..
             } => {
                 let sentences = match example_sentences.get(word) {
@@ -439,21 +454,25 @@ impl Application for Dict {
                     };
 
                 let mut column = Column::new()
-                    .spacing(5)
                     .align_items(Align::Start)
                     .height(Length::Fill)
                     .push(
-                        Row::new()
-                            .push(
-                                Text::new(word.to_string())
-                                    .size(50)
-                                    .width(Length::FillPortion(1)),
-                            )
-                            .push(
-                                Text::new(reading.to_string())
-                                    .size(35)
-                                    .width(Length::FillPortion(4)),
-                            ),
+                        Row::new().push(
+                            Text::new(reading.to_string())
+                                .size(35)
+                                .width(Length::FillPortion(4)),
+                        ),
+                    )
+                    .push(
+                        Row::new().push(Text::new(word.to_string()).size(50).width(Length::Shrink)),
+                    )
+                    .push(
+                        Row::new().push(
+                            Text::new(translations.clone().join(" / "))
+                                .size(35)
+                                .width(Length::FillPortion(1))
+                                .horizontal_alignment(HorizontalAlignment::Left),
+                        ),
                     )
                     .push(
                         Button::new(
@@ -464,9 +483,18 @@ impl Application for Dict {
                                 .size(16),
                         )
                         .on_press(Message::CreateFlashcardButtonPressed(shortest_sentence)),
+                    )
+                    .push(Row::new().push(Space::new(Length::Fill, Length::Units(20))))
+                    .push(
+                        Text::new(format!(
+                            "{} sentences:",
+                            std::cmp::min(sentences.len(), 20 as usize)
+                        ))
+                        .size(30)
+                        .width(Length::Fill),
                     );
 
-                for sentence in sentences.iter().take(5) {
+                for sentence in sentences.iter().take(20) {
                     let japanese_row = Row::new().spacing(20).push(
                         Text::new(&sentence.japanese_text)
                             .size(30)
@@ -477,13 +505,20 @@ impl Application for Dict {
                             .size(30)
                             .width(Length::Fill),
                     );
-
                     let spacing_row = Row::new().push(Space::new(Length::Fill, Length::Units(20)));
+
                     column = column.push(japanese_row);
                     column = column.push(english_row);
                     column = column.push(spacing_row);
                 }
-                column
+                let scrollable = Scrollable::new(scroll)
+                    .push(Container::new(column).width(Length::Fill).center_x());
+
+                Column::new()
+                    .spacing(5)
+                    .align_items(Align::Start)
+                    .height(Length::Fill)
+                    .push(scrollable)
             }
         };
 
