@@ -1,6 +1,6 @@
 **Japanese Dictionary/Anki flashcard generator**
 
-![searching for pudding](img/its_alive.gif)
+![searching and generating some cards](img/generate_flashcards.gif)
 
 A desktop application to look up english/japanese words and create Anki flashcards.  
 
