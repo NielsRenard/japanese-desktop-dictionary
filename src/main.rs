@@ -7,6 +7,7 @@ extern crate nom;
 use rayon::prelude::*;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::io::prelude::*;
 
 use iced::{
     button, keyboard, scrollable, text_input, window, Align, Application, Button, Clipboard, Color,
@@ -26,7 +27,6 @@ enum Dict {
         input_value: String,
         button: button::State,
         example_sentences: SentenceMap,
-        open_state: button::State,
         modal_state: modal::State<ModalState>,
     },
     Loading {
@@ -47,6 +47,7 @@ enum Dict {
         translations: Vec<String>,
         search_results: Vec<SearchResult>,
         example_sentences: SentenceMap,
+        modal_state: modal::State<ModalState>,
     },
 }
 
@@ -72,6 +73,7 @@ enum Message {
     CloseModal,
     CancelButtonPressed,
     OkButtonPressed,
+    UndoButtonPressed,
 }
 
 #[derive(Debug, Clone)]
@@ -185,7 +187,6 @@ impl Application for Dict {
                             input_value: "".to_string(),
                             button: button::State::new(),
                             example_sentences: sentence_map,
-                            open_state: button::State::new(),
                             modal_state: modal::State::new(ModalState {
                                 cancel_state: button::State::new(),
                                 ok_state: button::State::new(),
@@ -282,7 +283,6 @@ impl Application for Dict {
                         input_value: "".to_string(),
                         button: button::State::new(),
                         example_sentences: state_swap_example_sentences,
-                        open_state: button::State::new(),
                         modal_state: modal::State::new(ModalState {
                             cancel_state: button::State::new(),
                             ok_state: button::State::new(),
@@ -300,6 +300,10 @@ impl Application for Dict {
                         translations,
                         search_results: std::mem::take(search_results),
                         example_sentences: std::mem::take(example_sentences),
+                        modal_state: modal::State::new(ModalState {
+                            cancel_state: button::State::new(),
+                            ok_state: button::State::new(),
+                        }),
                     };
                     Command::none()
                 }
@@ -311,6 +315,7 @@ impl Application for Dict {
                 word,
                 reading,
                 translations,
+                modal_state,
                 ..
             } => match message {
                 Message::BackButtonPressed | Message::EscapeButtonPressed => {
@@ -332,6 +337,20 @@ impl Application for Dict {
                         sentence_translation: &example_sentence.english_text,
                     };
                     let _ = store_word_to_csv(&card);
+                    self.update(Message::OpenModal, _clipboard)
+                }
+                Message::OpenModal => {
+                    modal_state.show(true);
+                    Command::none()
+                }
+                Message::CancelButtonPressed | Message::CloseModal => {
+                    modal_state.show(false);
+                    Command::none()
+                }
+                Message::OkButtonPressed => self.update(Message::CloseModal, _clipboard),
+                Message::UndoButtonPressed => {
+                    let _ = delete_last_line_of_csv();
+                    modal_state.show(false);
                     Command::none()
                 }
                 _ => Command::none(),
@@ -558,6 +577,7 @@ impl Application for Dict {
                 create_flashcard_button,
                 scroll,
                 back_button,
+                modal_state,
                 ..
             } => {
                 let sentences = match example_sentences.get(word) {
@@ -655,9 +675,46 @@ impl Application for Dict {
                     column = column.push(english_row);
                     column = column.push(spacing_row);
                 }
+
                 let scrollable = Scrollable::new(scroll)
                     .push(Container::new(column).width(Length::Fill).center_x());
-                Container::new(scrollable)
+
+                let modal = Modal::new(modal_state, scrollable, |state| {
+                    Card::new(Text::new("Save Anki flash card"), Text::new("Saved!"))
+                        .foot(
+                            Row::new()
+                                .spacing(10)
+                                .padding(5)
+                                .width(Length::Fill)
+                                .push(
+                                    Button::new(
+                                        &mut state.ok_state,
+                                        Text::new("Ok")
+                                            .horizontal_alignment(HorizontalAlignment::Center),
+                                    )
+                                    .style(style::Button::Primary)
+                                    .width(Length::Fill)
+                                    .on_press(Message::OkButtonPressed),
+                                )
+                                .push(
+                                    Button::new(
+                                        &mut state.cancel_state,
+                                        Text::new("Undo")
+                                            .horizontal_alignment(HorizontalAlignment::Center),
+                                    )
+                                    .style(style::Button::Secondary)
+                                    .width(Length::Fill)
+                                    .on_press(Message::UndoButtonPressed),
+                                ),
+                        )
+                        .max_width(300)
+                        .on_close(Message::CloseModal)
+                        .into()
+                })
+                .backdrop(Message::CloseModal)
+                .on_esc(Message::CancelButtonPressed);
+
+                Container::new(modal)
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .padding(30)
@@ -780,6 +837,28 @@ fn store_word_to_csv<T: Serialize>(card: &T) -> Result<(), Box<dyn Error>> {
         .has_headers(false)
         .from_writer(file);
     wtr.serialize(card)?;
+    Ok(())
+}
+
+fn delete_last_line_of_csv() -> Result<(), Box<dyn Error>> {
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .open("japanese_words_anki_import.txt")?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+
+    let lines = contents.lines();
+    let mut all_but_last: Vec<&str> = lines.rev().skip(1).collect();
+    all_but_last.reverse();
+
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open("japanese_words_anki_import.txt")?;
+    let mut buf_writer = std::io::BufWriter::new(file);
+    for line in all_but_last {
+        writeln!(buf_writer, "{}", line)?;
+    }
     Ok(())
 }
 
