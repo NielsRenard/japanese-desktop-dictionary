@@ -17,3 +17,4 @@ nom         =             "7.0"
 rayon       =             "1.5"
 async-std   =             "1.7.0"
 csv         =             "1.1.6"
+iced_aw     = { git = "https://github.com/iced-rs/iced_aw", branch = "main", default-features = false, features = ["card", "modal", "colors"] }

@@ -14,6 +14,8 @@ use iced::{
     Space, Subscription, Text, TextInput,
 };
 
+use iced_aw::{modal, Card, Modal};
+
 use iced_native::{subscription, Event};
 
 #[derive(Debug)]
@@ -24,6 +26,8 @@ enum Dict {
         input_value: String,
         button: button::State,
         example_sentences: SentenceMap,
+        open_state: button::State,
+        modal_state: modal::State<ModalState>,
     },
     Loading {
         example_sentences: SentenceMap,
@@ -46,6 +50,12 @@ enum Dict {
     },
 }
 
+#[derive(Debug, Default)]
+struct ModalState {
+    cancel_state: button::State,
+    ok_state: button::State,
+}
+
 #[derive(Debug, Clone)]
 enum Message {
     FoundExampleSentences(Result<String, DictError>),
@@ -55,8 +65,13 @@ enum Message {
     DetailsButtonPressed(String, String, Vec<String>),
     CreateFlashcardButtonPressed(ExampleSentence),
     EscapeButtonPressed,
+    QButtonPressed,
     WordFound(Result<JishoResponse, DictError>),
     SearchAgainButtonPressed,
+    OpenModal,
+    CloseModal,
+    CancelButtonPressed,
+    OkButtonPressed,
 }
 
 #[derive(Debug, Clone)]
@@ -166,17 +181,21 @@ impl Application for Dict {
 
                         println!("startup: finished loading sentences!");
                         *self = Dict::Waiting {
-                            input: text_input::State::new(),
+                            input: text_input::State::focused(),
                             input_value: "".to_string(),
                             button: button::State::new(),
                             example_sentences: sentence_map,
+                            open_state: button::State::new(),
+                            modal_state: modal::State::new(ModalState {
+                                cancel_state: button::State::new(),
+                                ok_state: button::State::new(),
+                            }),
                         };
                         Command::none()
                     }
                     Err(_error) => {
                         // loading/parsing sentences somehow failed
                         // TODO: do something
-                        println!("startup: wtf error!");
                         Command::none()
                     }
                 },
@@ -188,6 +207,7 @@ impl Application for Dict {
             Dict::Waiting {
                 input_value,
                 example_sentences,
+                modal_state,
                 ..
             } => match message {
                 Message::InputChanged(value) => {
@@ -203,7 +223,16 @@ impl Application for Dict {
                     println!("{}", query);
                     Command::perform(Dict::search(query), Message::WordFound)
                 }
-                Message::EscapeButtonPressed => {
+                Message::EscapeButtonPressed => self.update(Message::OpenModal, _clipboard),
+                Message::OpenModal => {
+                    modal_state.show(true);
+                    Command::none()
+                }
+                Message::CancelButtonPressed | Message::CloseModal => {
+                    modal_state.show(false);
+                    Command::none()
+                }
+                Message::OkButtonPressed => {
                     std::process::exit(0);
                 }
                 _ => Command::none(),
@@ -246,18 +275,20 @@ impl Application for Dict {
                 search_results,
                 ..
             } => match message {
-                Message::SearchAgainButtonPressed => {
+                Message::SearchAgainButtonPressed | Message::EscapeButtonPressed => {
                     let state_swap_example_sentences = std::mem::take(example_sentences);
                     *self = Dict::Waiting {
-                        input: text_input::State::new(),
+                        input: text_input::State::focused(),
                         input_value: "".to_string(),
                         button: button::State::new(),
                         example_sentences: state_swap_example_sentences,
+                        open_state: button::State::new(),
+                        modal_state: modal::State::new(ModalState {
+                            cancel_state: button::State::new(),
+                            ok_state: button::State::new(),
+                        }),
                     };
                     Command::none()
-                }
-                Message::EscapeButtonPressed => {
-                    std::process::exit(0);
                 }
                 Message::DetailsButtonPressed(word, reading, translations) => {
                     *self = Dict::Details {
@@ -326,45 +357,108 @@ impl Application for Dict {
     }
 
     fn view(&mut self) -> Element<Message> {
-        let content = match self {
-            Dict::Startup {} => Column::new()
-                .width(Length::Shrink)
-                .push(Text::new("Loading example sentences, just a sec.").size(40)),
+        return match self {
+            Dict::Startup {} => {
+                let column = Column::new()
+                    .width(Length::Shrink)
+                    .push(Text::new("Loading example sentences, just a sec.").size(40));
+                Container::new(column)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .padding(30)
+                    .into()
+            }
             Dict::Loading {
                 example_sentences: _,
-            } => Column::new()
-                .width(Length::Shrink)
-                .push(Text::new("Loading...").size(40)),
+            } => {
+                let column = Column::new()
+                    .width(Length::Shrink)
+                    .push(Text::new("Loading...").size(40));
+                Container::new(column)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .padding(30)
+                    .into()
+            }
             Dict::Waiting {
                 input,
                 input_value,
                 button,
                 example_sentences: _,
-            } => Column::new()
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .align_items(Align::Start)
-                .padding(10)
-                .spacing(10)
-                .push(Text::new("Search the dictionary:").size(40))
-                .push(
-                    Row::new().spacing(10).push(
-                        TextInput::new(
-                            input,
-                            "Type something...",
-                            input_value,
-                            Message::InputChanged,
-                        )
-                        .padding(10)
-                        .size(25),
-                    ),
-                )
-                .push(
-                    Button::new(button, Text::new("Search").size(20))
-                        .padding(10)
-                        .on_press(Message::SearchButtonPressed)
-                        .style(style::Button::Primary),
-                ),
+                modal_state,
+                ..
+            } => {
+                let column = Column::new()
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .align_items(Align::Start)
+                    .padding(10)
+                    .spacing(10)
+                    .push(Text::new("Search the dictionary:").size(40))
+                    .push(
+                        Row::new().spacing(10).push(
+                            TextInput::new(
+                                input,
+                                "Type something...",
+                                input_value,
+                                Message::InputChanged,
+                            )
+                            .padding(10)
+                            .size(25),
+                        ),
+                    )
+                    .push(
+                        Button::new(button, Text::new("Search").size(20))
+                            .padding(10)
+                            .on_press(Message::SearchButtonPressed)
+                            .style(style::Button::Primary),
+                    );
+
+                let modal = Modal::new(modal_state, column, |state| {
+                    Card::new(
+                        Text::new("Exit"),
+                        Text::new("Are you sure you want to quit?"),
+                    )
+                    .foot(
+                        Row::new()
+                            .spacing(10)
+                            .padding(5)
+                            .width(Length::Fill)
+                            .push(
+                                Button::new(
+                                    &mut state.ok_state,
+                                    Text::new("Quit")
+                                        .horizontal_alignment(HorizontalAlignment::Center),
+                                )
+                                .style(style::Button::Primary)
+                                .width(Length::Fill)
+                                .on_press(Message::OkButtonPressed),
+                            )
+                            .push(
+                                Button::new(
+                                    &mut state.cancel_state,
+                                    Text::new("Cancel")
+                                        .horizontal_alignment(HorizontalAlignment::Center),
+                                )
+                                .style(style::Button::Secondary)
+                                .width(Length::Fill)
+                                .on_press(Message::CancelButtonPressed),
+                            ),
+                    )
+                    .max_width(300)
+                    //.width(Length::Shrink)
+                    .on_close(Message::CloseModal)
+                    .into()
+                })
+                .backdrop(Message::CloseModal)
+                .on_esc(Message::CancelButtonPressed);
+
+                Container::new(modal)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .padding(30)
+                    .into()
+            }
 
             Dict::Loaded {
                 button,
@@ -451,11 +545,16 @@ impl Application for Dict {
                 let scrollable = Scrollable::new(scroll)
                     .push(Container::new(content).width(Length::Fill).center_x());
 
-                Column::new()
-                    .spacing(5)
-                    .align_items(Align::Start)
+                // Column::new()
+                //     .spacing(5)
+                //     .align_items(Align::Start)
+                //     .height(Length::Fill)
+                //     .push(scrollable)
+                Container::new(scrollable)
+                    .width(Length::Fill)
                     .height(Length::Fill)
-                    .push(scrollable)
+                    .padding(30)
+                    .into()
             }
             Dict::Details {
                 word,
@@ -539,7 +638,7 @@ impl Application for Dict {
                     .push(
                         Text::new(format!(
                             "{} sentences:",
-                            std::cmp::min(sentences.len(), 20 as usize)
+                            std::cmp::min(sentences.len(), 20_usize)
                         ))
                         .size(30)
                         .width(Length::Fill),
@@ -564,20 +663,18 @@ impl Application for Dict {
                 }
                 let scrollable = Scrollable::new(scroll)
                     .push(Container::new(column).width(Length::Fill).center_x());
-
-                Column::new()
-                    .spacing(5)
-                    .align_items(Align::Start)
+                // Column::new()
+                //     .spacing(5)
+                //     .align_items(Align::Start)
+                //     .height(Length::Fill)
+                //     .push(scrollable);
+                Container::new(scrollable)
+                    .width(Length::Fill)
                     .height(Length::Fill)
-                    .push(scrollable)
+                    .padding(30)
+                    .into()
             }
         };
-
-        Container::new(content)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .padding(30)
-            .into()
     }
 }
 
@@ -668,6 +765,7 @@ fn handle_hotkey(key_code: keyboard::KeyCode) -> Option<Message> {
     match key_code {
         KeyCode::Enter => Some(Message::SearchButtonPressed),
         KeyCode::Escape => Some(Message::EscapeButtonPressed),
+        KeyCode::Q => Some(Message::QButtonPressed),
         _ => None,
     }
 }
