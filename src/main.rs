@@ -446,7 +446,6 @@ impl Application for Dict {
                             ),
                     )
                     .max_width(300)
-                    //.width(Length::Shrink)
                     .on_close(Message::CloseModal)
                     .into()
                 })
@@ -545,11 +544,6 @@ impl Application for Dict {
                 let scrollable = Scrollable::new(scroll)
                     .push(Container::new(content).width(Length::Fill).center_x());
 
-                // Column::new()
-                //     .spacing(5)
-                //     .align_items(Align::Start)
-                //     .height(Length::Fill)
-                //     .push(scrollable)
                 Container::new(scrollable)
                     .width(Length::Fill)
                     .height(Length::Fill)
@@ -663,11 +657,6 @@ impl Application for Dict {
                 }
                 let scrollable = Scrollable::new(scroll)
                     .push(Container::new(column).width(Length::Fill).center_x());
-                // Column::new()
-                //     .spacing(5)
-                //     .align_items(Align::Start)
-                //     .height(Length::Fill)
-                //     .push(scrollable);
                 Container::new(scrollable)
                     .width(Length::Fill)
                     .height(Length::Fill)
