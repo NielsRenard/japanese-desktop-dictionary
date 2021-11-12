@@ -1,3 +1,4 @@
+use iced_native::Slider;
 use std::error::Error;
 mod jisho;
 use crate::jisho::JishoResponse;
@@ -10,9 +11,9 @@ use std::collections::HashMap;
 use std::io::prelude::*;
 
 use iced::{
-    button, keyboard, scrollable, text_input, window, Align, Application, Button, Clipboard, Color,
-    Column, Command, Container, Element, HorizontalAlignment, Length, Row, Scrollable, Settings,
-    Space, Subscription, Text, TextInput,
+    button, keyboard, scrollable, slider, text_input, window, Align, Application, Button,
+    Clipboard, Color, Column, Command, Container, Element, HorizontalAlignment, Length, Row,
+    Scrollable, Settings, Space, Subscription, Text, TextInput,
 };
 
 use iced_aw::{modal, Card, Modal};
@@ -48,6 +49,8 @@ enum Dict {
         search_results: Vec<SearchResult>,
         example_sentences: SentenceMap,
         modal_state: modal::State<ModalState>,
+        slider_state: slider::State,
+        text_zoom_value: u16,
     },
 }
 
@@ -69,6 +72,7 @@ enum Message {
     QButtonPressed,
     WordFound(Result<JishoResponse, DictError>),
     SearchAgainButtonPressed,
+    TextSizeChanged(u16),
     OpenModal,
     CloseModal,
     CancelButtonPressed,
@@ -304,6 +308,8 @@ impl Application for Dict {
                             cancel_state: button::State::new(),
                             ok_state: button::State::new(),
                         }),
+                        slider_state: slider::State::new(),
+                        text_zoom_value: 1,
                     };
                     Command::none()
                 }
@@ -316,6 +322,7 @@ impl Application for Dict {
                 reading,
                 translations,
                 modal_state,
+                text_zoom_value,
                 ..
             } => match message {
                 Message::BackButtonPressed | Message::EscapeButtonPressed => {
@@ -338,6 +345,10 @@ impl Application for Dict {
                     };
                     let _ = store_word_to_csv(&card);
                     self.update(Message::OpenModal, _clipboard)
+                }
+                Message::TextSizeChanged(new_size) => {
+                    *text_zoom_value = new_size;
+                    Command::none()
                 }
                 Message::OpenModal => {
                     modal_state.show(true);
@@ -578,6 +589,8 @@ impl Application for Dict {
                 scroll,
                 back_button,
                 modal_state,
+                slider_state,
+                text_zoom_value,
                 ..
             } => {
                 let sentences = match example_sentences.get(word) {
@@ -620,6 +633,15 @@ impl Application for Dict {
                                 .on_press(Message::CreateFlashcardButtonPressed(shortest_sentence))
                                 .style(style::Button::Primary)
                                 .padding(10),
+                            )
+                            .push(
+                                    Text::new("Font size")
+                                        .size(30)
+                                        .width(Length::Shrink),
+                                )
+                            .push(
+                                Slider::new(slider_state, 0..=40, 0, Message::TextSizeChanged)
+                                    .width(Length::Units(150)),
                             ),
                     )
                     .push(
@@ -651,7 +673,7 @@ impl Application for Dict {
                     .push(Row::new().push(Space::new(Length::Fill, Length::Units(20))))
                     .push(
                         Text::new(format!(
-                            "{} sentences:",
+                            "{} sentence(s):",
                             std::cmp::min(sentences.len(), 20_usize)
                         ))
                         .size(30)
@@ -661,7 +683,7 @@ impl Application for Dict {
                 for sentence in sentences.iter().take(20) {
                     let japanese_row = Row::new().spacing(20).push(
                         Text::new(&sentence.japanese_text)
-                            .size(30)
+                            .size(30 + *text_zoom_value)
                             .width(Length::Fill),
                     );
                     let english_row = Row::new().spacing(20).push(
