@@ -72,7 +72,7 @@ enum Message {
     QButtonPressed,
     WordFound(Result<JishoResponse, DictError>),
     SearchAgainButtonPressed,
-    TextSizeChanged(u16),
+    TextSizeSliderChanged(u16),
     OpenModal,
     CloseModal,
     CancelButtonPressed,
@@ -309,7 +309,7 @@ impl Application for Dict {
                             ok_state: button::State::new(),
                         }),
                         slider_state: slider::State::new(),
-                        text_zoom_value: 1,
+                        text_zoom_value: 18,
                     };
                     Command::none()
                 }
@@ -346,7 +346,7 @@ impl Application for Dict {
                     let _ = store_word_to_csv(&card);
                     self.update(Message::OpenModal, _clipboard)
                 }
-                Message::TextSizeChanged(new_size) => {
+                Message::TextSizeSliderChanged(new_size) => {
                     *text_zoom_value = new_size;
                     Command::none()
                 }
@@ -640,7 +640,7 @@ impl Application for Dict {
                                         .width(Length::Shrink),
                                 )
                             .push(
-                                Slider::new(slider_state, 0..=40, 0, Message::TextSizeChanged)
+                                Slider::new(slider_state, 0..=40, *text_zoom_value, Message::TextSizeSliderChanged)
                                     .width(Length::Units(150)),
                             ),
                     )
