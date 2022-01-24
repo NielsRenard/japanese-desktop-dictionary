@@ -42,10 +42,12 @@ enum Dict {
     Details {
         back_button: button::State,
         create_flashcard_button: button::State,
+        show_english_button: button::State,
         scroll: scrollable::State,
         word: String,
         reading: String,
         translations: Vec<String>,
+        toggle_show_translation: bool,
         search_results: Vec<SearchResult>,
         example_sentences: SentenceMap,
         modal_state: modal::State<ModalState>,
@@ -68,8 +70,10 @@ enum Message {
     BackButtonPressed,
     DetailsButtonPressed(String, String, Vec<String>),
     CreateFlashcardButtonPressed(ExampleSentence),
+    ToggleShowTranslationButtonPressed,
     EscapeButtonPressed,
     QButtonPressed,
+    TButtonPressed,
     WordFound(Result<JishoResponse, DictError>),
     SearchAgainButtonPressed,
     TextSizeSliderChanged(u16),
@@ -298,10 +302,12 @@ impl Application for Dict {
                     *self = Dict::Details {
                         scroll: scrollable::State::new(),
                         back_button: button::State::new(),
+                        show_english_button: button::State::new(),
                         create_flashcard_button: button::State::new(),
                         word,
                         reading,
                         translations,
+                        toggle_show_translation: false,
                         search_results: std::mem::take(search_results),
                         example_sentences: std::mem::take(example_sentences),
                         modal_state: modal::State::new(ModalState {
@@ -321,6 +327,7 @@ impl Application for Dict {
                 word,
                 reading,
                 translations,
+                toggle_show_translation,
                 modal_state,
                 text_zoom_value,
                 ..
@@ -345,6 +352,11 @@ impl Application for Dict {
                     };
                     let _ = store_word_to_csv(&card);
                     self.update(Message::OpenModal, _clipboard)
+                }
+                Message::ToggleShowTranslationButtonPressed | Message::TButtonPressed => {
+                    // let current_state = *toggle_show_translation;
+                    *toggle_show_translation = !(*toggle_show_translation);
+                    Command::none()
                 }
                 Message::TextSizeSliderChanged(new_size) => {
                     *text_zoom_value = new_size;
@@ -588,6 +600,8 @@ impl Application for Dict {
                 create_flashcard_button,
                 scroll,
                 back_button,
+                show_english_button,
+                toggle_show_translation,
                 modal_state,
                 slider_state,
                 text_zoom_value,
@@ -632,6 +646,18 @@ impl Application for Dict {
                                 )
                                 .on_press(Message::CreateFlashcardButtonPressed(shortest_sentence))
                                 .style(style::Button::Primary)
+                                .padding(10),
+                            )
+                            .push(
+                                Button::new(
+                                    show_english_button,
+                                    Text::new(if *toggle_show_translation  { "Hide translation" } else { "Show translation" } )
+                                        .width(Length::Fill)
+                                        .horizontal_alignment(HorizontalAlignment::Center)
+                                        .size(16),
+                                )
+                                .on_press(Message::ToggleShowTranslationButtonPressed)
+                                    .style(if *toggle_show_translation  { style::Button::Secondary } else { style::Button::Primary } )
                                 .padding(10),
                             )
                             .push(
@@ -680,8 +706,13 @@ impl Application for Dict {
                         .width(Length::Fill),
                     );
 
-                for sentence in sentences.iter().take(20) {
+                for (n, sentence) in sentences.iter().take(20).enumerate() {
                     let japanese_row = Row::new().spacing(20).push(
+                        Text::new(format!("{}.", n))
+                            .size(20 + *text_zoom_value)
+                            .width(Length::Shrink),
+                    )
+                        .push(
                         Text::new(&sentence.japanese_text)
                             .size(30 + *text_zoom_value)
                             .width(Length::Fill),
@@ -692,9 +723,10 @@ impl Application for Dict {
                             .width(Length::Fill),
                     );
                     let spacing_row = Row::new().push(Space::new(Length::Fill, Length::Units(20)));
-
                     column = column.push(japanese_row);
-                    column = column.push(english_row);
+                    if *toggle_show_translation {
+                        column = column.push(english_row);
+                    }
                     column = column.push(spacing_row);
                 }
 
@@ -831,9 +863,10 @@ fn handle_hotkey(key_code: keyboard::KeyCode) -> Option<Message> {
     use keyboard::KeyCode;
 
     match key_code {
-        KeyCode::Enter => Some(Message::SearchButtonPressed),
+        KeyCode::Enter | KeyCode::NumpadEnter => Some(Message::SearchButtonPressed),
         KeyCode::Escape => Some(Message::EscapeButtonPressed),
         KeyCode::Q => Some(Message::QButtonPressed),
+        KeyCode::T => Some(Message::TButtonPressed),
         _ => None,
     }
 }
