@@ -1,4 +1,12 @@
-use iced_native::Slider;
+#![allow(dead_code, unused_mut, unused_variables, unused_imports)]
+use iced::alignment::Horizontal;
+use iced::widget::{scrollable, slider, Button, Column, Container, Row, Space, Text, TextInput};
+use iced::{
+    keyboard, window, Alignment, Application, Color, Command, Element, Length, Settings,
+    Subscription,
+};
+
+use iced_native::widget::{button, text_input};
 use std::error::Error;
 mod jisho;
 use crate::jisho::JishoResponse;
@@ -10,11 +18,11 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::io::prelude::*;
 
-use iced::{
-    button, keyboard, scrollable, slider, text_input, window, Align, Application, Button,
-    Clipboard, Color, Column, Command, Container, Element, HorizontalAlignment, Length, Row,
-    Scrollable, Settings, Space, Subscription, Text, TextInput,
-};
+// use iced::{
+//     button, keyboard, scrollable, slider, text_input, window, Align, Application, Button,
+//     Clipboard, Color, Column, Command, Container, Element, HorizontalAlignment, Length, Row,
+//     Scrollable, Settings, Space, Subscription, Text, TextInput,
+// };
 
 use iced_aw::{modal, Card, Modal};
 
@@ -35,7 +43,6 @@ enum Dict {
     },
     Loaded {
         button: button::State,
-        scroll: scrollable::State,
         search_results: Vec<SearchResult>,
         example_sentences: SentenceMap,
     },
@@ -43,7 +50,6 @@ enum Dict {
         back_button: button::State,
         create_flashcard_button: button::State,
         show_english_button: button::State,
-        scroll: scrollable::State,
         word: String,
         reading: String,
         translations: Vec<String>,
@@ -112,7 +118,7 @@ impl SearchResult {
                 Text::new(&self.translations[0])
                     .size(30)
                     .width(Length::Fill)
-                    .horizontal_alignment(HorizontalAlignment::Left),
+                    .horizontal_alignment(Horizontal::Left),
             )
     }
 }
@@ -166,6 +172,7 @@ impl<'a> Iterator for LinesWithEndings<'a> {
 impl Application for Dict {
     type Executor = iced::executor::Default;
     type Message = Message;
+    type Theme = iced::Theme;
     type Flags = ();
 
     fn new(_flags: ()) -> (Self, Command<Message>) {
@@ -182,7 +189,7 @@ impl Application for Dict {
         String::from("Dict")
     }
 
-    fn update(&mut self, message: Message, _clipboard: &mut Clipboard) -> Command<Message> {
+    fn update(&mut self, message: Message) -> Command<Message> {
         match self {
             Dict::Startup {} => match message {
                 Message::FoundExampleSentences(result) => match result {
@@ -232,7 +239,7 @@ impl Application for Dict {
                     println!("{}", query);
                     Command::perform(Dict::search(query), Message::WordFound)
                 }
-                Message::EscapeButtonPressed => self.update(Message::OpenModal, _clipboard),
+                Message::EscapeButtonPressed => self.update(Message::OpenModal),
                 Message::OpenModal => {
                     modal_state.show(true);
                     Command::none()
@@ -264,7 +271,6 @@ impl Application for Dict {
                     let state_swap_example_sentences = std::mem::take(example_sentences);
                     *self = Dict::Loaded {
                         button: button::State::new(),
-                        scroll: scrollable::State::new(),
                         search_results,
                         example_sentences: state_swap_example_sentences,
                     };
@@ -300,7 +306,6 @@ impl Application for Dict {
                 }
                 Message::DetailsButtonPressed(word, reading, translations) => {
                     *self = Dict::Details {
-                        scroll: scrollable::State::new(),
                         back_button: button::State::new(),
                         show_english_button: button::State::new(),
                         create_flashcard_button: button::State::new(),
@@ -335,7 +340,6 @@ impl Application for Dict {
                 Message::BackButtonPressed | Message::EscapeButtonPressed => {
                     *self = Dict::Loaded {
                         button: button::State::new(),
-                        scroll: scrollable::State::new(),
                         example_sentences: std::mem::take(example_sentences),
                         search_results: std::mem::take(search_results),
                     };
@@ -351,7 +355,7 @@ impl Application for Dict {
                         sentence_translation: &example_sentence.english_text,
                     };
                     let _ = store_word_to_csv(&card);
-                    self.update(Message::OpenModal, _clipboard)
+                    self.update(Message::OpenModal)
                 }
                 Message::ToggleShowTranslationButtonPressed | Message::TButtonPressed => {
                     // let current_state = *toggle_show_translation;
@@ -370,7 +374,7 @@ impl Application for Dict {
                     modal_state.show(false);
                     Command::none()
                 }
-                Message::OkButtonPressed => self.update(Message::CloseModal, _clipboard),
+                Message::OkButtonPressed => self.update(Message::CloseModal),
                 Message::UndoButtonPressed => {
                     let _ = delete_last_line_of_csv();
                     modal_state.show(false);
@@ -381,24 +385,7 @@ impl Application for Dict {
         }
     }
 
-    fn subscription(&self) -> Subscription<Message> {
-        subscription::events_with(|event, _status| {
-            // this can be used to not handle the event when cursor is inside an input box
-            // if let event::Status::Captured = status {
-            //     return None;
-            // }
-
-            match event {
-                Event::Keyboard(keyboard::Event::KeyPressed {
-                    modifiers: _,
-                    key_code,
-                }) => handle_hotkey(key_code),
-                _ => None,
-            }
-        })
-    }
-
-    fn view(&mut self) -> Element<Message> {
+    fn view(&self) -> Element<Message> {
         return match self {
             Dict::Startup {} => {
                 let column = Column::new()
@@ -433,14 +420,14 @@ impl Application for Dict {
                 let column = Column::new()
                     .width(Length::Fill)
                     .height(Length::Fill)
-                    .align_items(Align::Start)
+                    .align_items(Alignment::Start)
                     .padding(10)
                     .spacing(10)
                     .push(Text::new("Search the dictionary:").size(40))
                     .push(
                         Row::new().spacing(10).push(
                             TextInput::new(
-                                input,
+                                // input,
                                 "Type something...",
                                 input_value,
                                 Message::InputChanged,
@@ -450,13 +437,13 @@ impl Application for Dict {
                         ),
                     )
                     .push(
-                        Button::new(button, Text::new("Search").size(20))
+                        Button::new(Text::new("Search").size(20))
                             .padding(10)
-                            .on_press(Message::SearchButtonPressed)
-                            .style(style::Button::Primary),
+                            .on_press(Message::SearchButtonPressed), // .style(style::Button::Primary),
                     );
 
-                let modal = Modal::new(modal_state, column, |state| {
+                // let modal = Modal::new(modal_state, column, |state| {
+                let modal = Modal::new(false, column, || {
                     Card::new(
                         Text::new("Exit"),
                         Text::new("Are you sure you want to quit?"),
@@ -468,21 +455,17 @@ impl Application for Dict {
                             .width(Length::Fill)
                             .push(
                                 Button::new(
-                                    &mut state.ok_state,
-                                    Text::new("Quit")
-                                        .horizontal_alignment(HorizontalAlignment::Center),
+                                    Text::new("Quit").horizontal_alignment(Horizontal::Center),
                                 )
-                                .style(style::Button::Primary)
+                                // .style(style::Button::Primary)
                                 .width(Length::Fill)
                                 .on_press(Message::OkButtonPressed),
                             )
                             .push(
                                 Button::new(
-                                    &mut state.cancel_state,
-                                    Text::new("Cancel")
-                                        .horizontal_alignment(HorizontalAlignment::Center),
+                                    Text::new("Cancel").horizontal_alignment(Horizontal::Center),
                                 )
-                                .style(style::Button::Secondary)
+                                // .style(style::Button::Secondary)
                                 .width(Length::Fill)
                                 .on_press(Message::CancelButtonPressed),
                             ),
@@ -503,19 +486,17 @@ impl Application for Dict {
 
             Dict::Loaded {
                 button,
-                scroll,
                 search_results,
                 example_sentences: _,
             } => {
                 let mut content = Column::new()
                     .spacing(5)
-                    .align_items(Align::Start)
+                    .align_items(Alignment::Start)
                     .height(Length::Fill)
                     .push(
-                        Button::new(button, Text::new("Search Again").size(25))
+                        Button::new(Text::new("Search Again").size(25))
                             .padding(10)
-                            .on_press(Message::SearchAgainButtonPressed)
-                            .style(style::Button::Secondary),
+                            .on_press(Message::SearchAgainButtonPressed), // .style(style::Button::Secondary),
                     )
                     .push(
                         Text::new(format!("{} results:", &search_results.len()))
@@ -530,33 +511,32 @@ impl Application for Dict {
                         Text::new("Word")
                             .size(30)
                             .width(Length::Fill)
-                            .color(Color::new(0.67, 0.61, 0.60, 1.0)),
+                            .style(Color::new(0.67, 0.61, 0.60, 1.0)),
                     )
                     .push(
                         Text::new("Reading")
                             .size(30)
                             .width(Length::Fill)
-                            .color(Color::new(0.67, 0.61, 0.60, 1.0)),
+                            .style(Color::new(0.67, 0.61, 0.60, 1.0)),
                     )
                     .push(
                         Text::new("Translations")
                             .size(30)
                             .width(Length::Fill)
-                            .color(Color::new(0.67, 0.61, 0.60, 1.0)),
+                            .style(Color::new(0.67, 0.61, 0.60, 1.0)),
                     );
                 content = content.push(row);
 
-                for i in search_results.iter_mut() {
-                    let button = |state, label: String, message: Message| {
+                for i in search_results.iter() {
+                    let button = |label: String, message: Message| {
                         Button::new(
-                            state,
                             Text::new(label)
                                 .width(Length::FillPortion(1))
-                                .horizontal_alignment(HorizontalAlignment::Center)
+                                .horizontal_alignment(Horizontal::Center)
                                 .size(16),
                         )
                         .width(Length::FillPortion(1))
-                        .style(style::Button::Primary)
+                        // .style(style::Button::Primary)
                         .on_press(message)
                         .padding(4)
                     };
@@ -564,7 +544,6 @@ impl Application for Dict {
                     let row = Row::new()
                         .spacing(10)
                         .push(button(
-                            &mut i.details_button,
                             "details".to_string(),
                             Message::DetailsButtonPressed(
                                 i.japanese.clone(),
@@ -578,13 +557,12 @@ impl Application for Dict {
                             Text::new(i.translations.clone().join(" / "))
                                 .size(30)
                                 .width(Length::Fill)
-                                .horizontal_alignment(HorizontalAlignment::Left),
+                                .horizontal_alignment(Horizontal::Left),
                         );
                     content = content.push(row);
                 }
 
-                let scrollable = Scrollable::new(scroll)
-                    .push(Container::new(content).width(Length::Fill).center_x());
+                let scrollable = scrollable(Container::new(content).width(Length::Fill).center_x());
 
                 Container::new(scrollable)
                     .width(Length::Fill)
@@ -598,7 +576,6 @@ impl Application for Dict {
                 translations,
                 example_sentences,
                 create_flashcard_button,
-                scroll,
                 back_button,
                 show_english_button,
                 toggle_show_translation,
@@ -624,55 +601,52 @@ impl Application for Dict {
                     };
 
                 let mut column = Column::new()
-                    .align_items(Align::Start)
+                    .align_items(Alignment::Start)
                     .height(Length::Fill)
                     .spacing(10)
                     .push(
                         Row::new()
                             .spacing(10)
                             .push(
-                                Button::new(back_button, Text::new("Back").size(20))
+                                Button::new(Text::new("Back").size(20))
                                     .padding(10)
-                                    .on_press(Message::BackButtonPressed)
-                                    .style(style::Button::Secondary),
+                                    .on_press(Message::BackButtonPressed), // .style(style::Button::Secondary),
                             )
                             .push(
                                 Button::new(
-                                    create_flashcard_button,
                                     Text::new("Save to Anki flash card")
                                         .width(Length::Fill)
-                                        .horizontal_alignment(HorizontalAlignment::Center)
+                                        .horizontal_alignment(Horizontal::Center)
                                         .size(16),
                                 )
                                 .on_press(Message::CreateFlashcardButtonPressed(shortest_sentence))
-                                .style(style::Button::Primary)
+                                // .style(style::Button::Primary)
                                 .padding(10),
                             )
                             .push(
                                 Button::new(
-                                    show_english_button,
-                                    Text::new(if *toggle_show_translation  { "Hide translation" } else { "Show translation" } )
-                                        .width(Length::Fill)
-                                        .horizontal_alignment(HorizontalAlignment::Center)
-                                        .size(16),
+                                    Text::new(if *toggle_show_translation {
+                                        "Hide translation"
+                                    } else {
+                                        "Show translation"
+                                    })
+                                    .width(Length::Fill)
+                                    .horizontal_alignment(Horizontal::Center)
+                                    .size(16),
                                 )
                                 .on_press(Message::ToggleShowTranslationButtonPressed)
-                                    .style(if *toggle_show_translation  { style::Button::Secondary } else { style::Button::Primary } )
+                                // .style(if *toggle_show_translation  { style::Button::Secondary } else { style::Button::Primary } )
                                 .padding(10),
                             )
+                            .push(Text::new("Font size").size(30).width(Length::Shrink))
                             .push(
-                                    Text::new("Font size")
-                                        .size(30)
-                                        .width(Length::Shrink),
-                                )
-                            .push(
-                                Slider::new(slider_state, 0..=40, *text_zoom_value, Message::TextSizeSliderChanged)
+                                slider(0..=40, *text_zoom_value, Message::TextSizeSliderChanged)
                                     .width(Length::Units(150)),
                             ),
                     )
                     .push(
                         Column::new()
-                            .align_items(Align::Start)
+                            .align_items(Alignment::Start)
                             .height(Length::Shrink)
                             .spacing(0)
                             .push(
@@ -693,7 +667,7 @@ impl Application for Dict {
                             Text::new(translations.clone().join(" / "))
                                 .size(35)
                                 .width(Length::FillPortion(1))
-                                .horizontal_alignment(HorizontalAlignment::Left),
+                                .horizontal_alignment(Horizontal::Left),
                         ),
                     )
                     .push(Row::new().push(Space::new(Length::Fill, Length::Units(20))))
@@ -707,18 +681,20 @@ impl Application for Dict {
                     );
 
                 for (n, sentence) in sentences.iter().take(20).enumerate() {
-                    let japanese_row = Row::new().spacing(20).push(
-                        Text::new(format!("{}.", n))
-                            .size(20 + *text_zoom_value)
-                            .width(Length::Shrink),
-                    )
+                    let japanese_row = Row::new()
+                        .spacing(20)
                         .push(
-                        Text::new(&sentence.japanese_text)
-                            .size(30 + *text_zoom_value)
-                            .width(Length::Fill),
-                    );
+                            Text::new(format!("{}.", n))
+                                .size(20 + *text_zoom_value)
+                                .width(Length::Shrink),
+                        )
+                        .push(
+                            Text::new(sentence.japanese_text.clone())
+                                .size(30 + *text_zoom_value)
+                                .width(Length::Fill),
+                        );
                     let english_row = Row::new().spacing(20).push(
-                        Text::new(&sentence.english_text)
+                        Text::new(sentence.english_text.clone())
                             .size(30)
                             .width(Length::Fill),
                     );
@@ -730,10 +706,10 @@ impl Application for Dict {
                     column = column.push(spacing_row);
                 }
 
-                let scrollable = Scrollable::new(scroll)
-                    .push(Container::new(column).width(Length::Fill).center_x());
+                let scrollable = scrollable(Container::new(column).width(Length::Fill).center_x());
 
-                let modal = Modal::new(modal_state, scrollable, |state| {
+                // let modal = Modal::new(modal_state, scrollable, |state| {
+                let modal = Modal::new(false, scrollable, || {
                     Card::new(Text::new("Save Anki flash card"), Text::new("Saved!"))
                         .foot(
                             Row::new()
@@ -742,21 +718,17 @@ impl Application for Dict {
                                 .width(Length::Fill)
                                 .push(
                                     Button::new(
-                                        &mut state.ok_state,
-                                        Text::new("Ok")
-                                            .horizontal_alignment(HorizontalAlignment::Center),
+                                        Text::new("Ok").horizontal_alignment(Horizontal::Center),
                                     )
-                                    .style(style::Button::Primary)
+                                    // .style(style::Button::Primary)
                                     .width(Length::Fill)
                                     .on_press(Message::OkButtonPressed),
                                 )
                                 .push(
                                     Button::new(
-                                        &mut state.cancel_state,
-                                        Text::new("Undo")
-                                            .horizontal_alignment(HorizontalAlignment::Center),
+                                        Text::new("Undo").horizontal_alignment(Horizontal::Center),
                                     )
-                                    .style(style::Button::Secondary)
+                                    // .style(style::Button::Secondary)
                                     .width(Length::Fill)
                                     .on_press(Message::UndoButtonPressed),
                                 ),
@@ -775,6 +747,23 @@ impl Application for Dict {
                     .into()
             }
         };
+    }
+
+    fn subscription(&self) -> Subscription<Message> {
+        subscription::events_with(|event, _status| {
+            // this can be used to not handle the event when cursor is inside an input box
+            // if let event::Status::Captured = status {
+            //     return None;
+            // }
+
+            match event {
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    modifiers: _,
+                    key_code,
+                }) => handle_hotkey(key_code),
+                _ => None,
+            }
+        })
     }
 }
 
@@ -917,34 +906,34 @@ fn delete_last_line_of_csv() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-mod style {
-    use iced::{button, Background, Color, Vector};
+// mod style {
+//     use iced::{Background, Color, Vector, widget::button};
 
-    pub enum Button {
-        Primary,
-        Secondary,
-    }
+//     pub enum Button {
+//         Primary,
+//         Secondary,
+//     }
 
-    impl button::StyleSheet for Button {
-        fn active(&self) -> button::Style {
-            button::Style {
-                background: Some(Background::Color(match self {
-                    Button::Primary => Color::from_rgb(0.11, 0.42, 0.87),
-                    Button::Secondary => Color::from_rgb(0.5, 0.5, 0.5),
-                })),
-                border_radius: 12.0,
-                shadow_offset: Vector::new(1.0, 1.0),
-                text_color: Color::from_rgb8(0xEE, 0xEE, 0xEE),
-                ..button::Style::default()
-            }
-        }
+//     impl button::StyleSheet for Button {
+//         fn active(&self) -> button::Style {
+//             button::Style {
+//                 background: Some(Background::Color(match self {
+//                     Button::Primary => Color::from_rgb(0.11, 0.42, 0.87),
+//                     Button::Secondary => Color::from_rgb(0.5, 0.5, 0.5),
+//                 })),
+//                 border_radius: 12.0,
+//                 shadow_offset: Vector::new(1.0, 1.0),
+//                 text_color: Color::from_rgb8(0xEE, 0xEE, 0xEE),
+//                 ..button::Style::default()
+//             }
+//         }
 
-        fn hovered(&self) -> button::Style {
-            button::Style {
-                text_color: Color::WHITE,
-                shadow_offset: Vector::new(1.0, 2.0),
-                ..self.active()
-            }
-        }
-    }
-}
+//         fn hovered(&self) -> button::Style {
+//             button::Style {
+//                 text_color: Color::WHITE,
+//                 shadow_offset: Vector::new(1.0, 2.0),
+//                 ..self.active()
+//             }
+//         }
+//     }
+// }

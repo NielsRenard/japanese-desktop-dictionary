@@ -8,6 +8,13 @@ Uses the fantastic [jisho.org](https://jisho.org) search api, and example senten
 
 Written in [Rust](https://www.rust-lang.org/), using [Iced](https://docs.rs/iced/0.3.0/iced/): a cross-platform GUI library focused on simplicity and type-safety. Inspired by Elm.  
 
+**Development Dependencies**
+
+***Ubuntu***
+
+- libexpat1-dev
+- libfreetype6-dev
+- libfontconfig1-dev
 
 **Generating Anki flash cards**
 

@@ -2,19 +2,19 @@
 name = "async-dict"
 version = "0.1.0"
 authors = ["Niels Renard <code.i.pushed@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-reqwest     = { version = "0.11"   , features = ["json"                     ] }
-tokio       = { version = "1.6"    , features = ["full"                     ] }
-serde       = { version = "1.0.59" , features = ["derive"                   ] }
-serde_json  =             "1.0.59"
-iced        = { version = "0.3.0"  , features = ["debug", "image", "tokio", "glow" ] }
-iced_native = { version = "0.4.0"  , features = ["debug" ] }
-nom         =             "7.0"
-rayon       =             "1.5"
-async-std   =             "1.7.0"
+reqwest     = { version = "0.11", features = ["json"] }
+tokio       = { version = "1.23"    , features = ["full"                     ] }
+serde       = { version = "1.0.152" , features = ["derive"                   ] }
+serde_json  =             "1.0.91"
+iced        = { version = "0.6"  , features = ["debug", "image", "tokio", "glow" ] }
+iced_native = { version = "0.7"  , features = ["debug" ] }
+nom         =             "7.1.1"
+rayon       =             "1.6.1"
+async-std   =             "1.12.0"
 csv         =             "1.1.6"
 iced_aw     = { git = "https://github.com/iced-rs/iced_aw", branch = "main", default-features = false, features = ["card", "modal", "colors"] }
