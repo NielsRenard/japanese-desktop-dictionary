@@ -1,4 +1,3 @@
-#![allow(dead_code, unused_mut, unused_variables, unused_imports)]
 use iced::alignment::Horizontal;
 use iced::widget::{scrollable, slider, Button, Column, Container, Row, Space, Text, TextInput};
 use iced::{
@@ -6,7 +5,6 @@ use iced::{
     Subscription,
 };
 
-use iced_native::widget::{button, text_input};
 use std::error::Error;
 mod jisho;
 use crate::jisho::JishoResponse;
@@ -18,13 +16,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::io::prelude::*;
 
-// use iced::{
-//     button, keyboard, scrollable, slider, text_input, window, Align, Application, Button,
-//     Clipboard, Color, Column, Command, Container, Element, HorizontalAlignment, Length, Row,
-//     Scrollable, Settings, Space, Subscription, Text, TextInput,
-// };
-
-use iced_aw::{modal, Card, Modal};
+use iced_aw::{Card, Modal};
 
 use iced_native::{subscription, Event};
 
@@ -32,9 +24,7 @@ use iced_native::{subscription, Event};
 enum Dict {
     Startup {},
     Waiting {
-        input: text_input::State,
         input_value: String,
-        button: button::State,
         example_sentences: SentenceMap,
         show_modal: bool,
     },
@@ -42,30 +32,19 @@ enum Dict {
         example_sentences: SentenceMap,
     },
     Loaded {
-        button: button::State,
         search_results: Vec<SearchResult>,
         example_sentences: SentenceMap,
     },
     Details {
-        back_button: button::State,
-        create_flashcard_button: button::State,
-        show_english_button: button::State,
         word: String,
         reading: String,
         translations: Vec<String>,
         toggle_show_translation: bool,
         search_results: Vec<SearchResult>,
         example_sentences: SentenceMap,
-        slider_state: slider::State,
         text_zoom_value: u16,
         show_modal: bool,
     },
-}
-
-#[derive(Debug, Default)]
-struct ModalState {
-    cancel_state: button::State,
-    ok_state: button::State,
 }
 
 #[derive(Debug, Clone)]
@@ -92,7 +71,6 @@ enum Message {
 
 #[derive(Debug, Clone)]
 struct SearchResult {
-    pub details_button: button::State,
     pub japanese: String,
     pub reading: String,
     pub translations: Vec<String>,
@@ -103,7 +81,6 @@ type SentenceMap = HashMap<String, Vec<ExampleSentence>>;
 impl SearchResult {
     fn new(japanese: String, reading: String, translations: Vec<String>) -> Self {
         Self {
-            details_button: button::State::new(),
             japanese,
             reading,
             translations,
@@ -198,9 +175,7 @@ impl Application for Dict {
 
                         println!("startup: finished loading sentences!");
                         *self = Dict::Waiting {
-                            input: text_input::State::focused(),
                             input_value: "".to_string(),
-                            button: button::State::new(),
                             example_sentences: sentence_map,
                             show_modal: false,
                         };
@@ -220,8 +195,6 @@ impl Application for Dict {
             Dict::Waiting {
                 input_value,
                 example_sentences,
-                input,
-                button,
                 show_modal,
             } => match message {
                 Message::InputChanged(value) => {
@@ -268,7 +241,6 @@ impl Application for Dict {
                     }
                     let state_swap_example_sentences = std::mem::take(example_sentences);
                     *self = Dict::Loaded {
-                        button: button::State::new(),
                         search_results,
                         example_sentences: state_swap_example_sentences,
                     };
@@ -291,9 +263,7 @@ impl Application for Dict {
                 Message::SearchAgainButtonPressed | Message::EscapeButtonPressed => {
                     let state_swap_example_sentences = std::mem::take(example_sentences);
                     *self = Dict::Waiting {
-                        input: text_input::State::focused(),
                         input_value: "".to_string(),
-                        button: button::State::new(),
                         example_sentences: state_swap_example_sentences,
                         show_modal: false,
                     };
@@ -301,16 +271,12 @@ impl Application for Dict {
                 }
                 Message::DetailsButtonPressed(word, reading, translations) => {
                     *self = Dict::Details {
-                        back_button: button::State::new(),
-                        show_english_button: button::State::new(),
-                        create_flashcard_button: button::State::new(),
                         word,
                         reading,
                         translations,
                         toggle_show_translation: false,
                         search_results: std::mem::take(search_results),
                         example_sentences: std::mem::take(example_sentences),
-                        slider_state: slider::State::new(),
                         text_zoom_value: 18,
                         show_modal: false,
                     };
@@ -326,15 +292,10 @@ impl Application for Dict {
                 translations,
                 toggle_show_translation,
                 text_zoom_value,
-                back_button,
-                create_flashcard_button,
-                show_english_button,
-                slider_state,
                 show_modal,
             } => match message {
                 Message::BackButtonPressed | Message::EscapeButtonPressed => {
                     *self = Dict::Loaded {
-                        button: button::State::new(),
                         example_sentences: std::mem::take(example_sentences),
                         search_results: std::mem::take(search_results),
                     };
@@ -405,9 +366,7 @@ impl Application for Dict {
                     .into()
             }
             Dict::Waiting {
-                input,
                 input_value,
-                button,
                 example_sentences: _,
                 show_modal,
             } => {
@@ -478,7 +437,6 @@ impl Application for Dict {
             }
 
             Dict::Loaded {
-                button,
                 search_results,
                 example_sentences: _,
             } => {
@@ -568,13 +526,9 @@ impl Application for Dict {
                 reading,
                 translations,
                 example_sentences,
-                create_flashcard_button,
-                back_button,
-                show_english_button,
                 toggle_show_translation,
-                slider_state,
                 text_zoom_value,
-                search_results,
+                search_results: _,
                 show_modal,
             } => {
                 let sentences = match example_sentences.get(word) {

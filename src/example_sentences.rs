@@ -5,7 +5,7 @@ use nom::combinator::eof;
 use nom::multi::many_till;
 use nom::IResult;
 
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, Eq, PartialEq, Clone, Default)]
 pub struct ExampleSentence {
     pub japanese_sentence_id: u32,
     pub english_sentence_id: u32,
@@ -14,7 +14,7 @@ pub struct ExampleSentence {
     pub indices: Vec<IndexWord>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum IndexElement {
     Bare,
     Reading(String),        // ()
@@ -153,9 +153,8 @@ mod tests {
 
     #[test]
     fn test_scheme_basic_index() {
-        let mut indexes = Vec::new();
         //4851	1434	愛してる。	I love you.	愛する{愛してる}
-        indexes.push(IndexWord {
+        let indexes = vec!(IndexWord {
             headword: "愛する".to_string(),
             reading: None,
             sense_number: None,
@@ -178,22 +177,19 @@ mod tests {
 
     #[test]
     fn test_scheme_complex_index() {
-        let mut indexes = Vec::new();
-        indexes.push(IndexWord {
+        let indexes = vec!(IndexWord {
             headword: "総員".to_string(),
             reading: None,
             sense_number: None,
             form_in_sentence: None,
             good_and_checked: true,
-        });
-        indexes.push(IndexWord {
+        }, IndexWord {
             headword: "脱出".to_string(),
             reading: None,
             sense_number: None,
             form_in_sentence: None,
             good_and_checked: false,
-        });
-        indexes.push(IndexWord {
+        }, IndexWord {
             headword: "為る".to_string(),
             reading: Some("する".to_string()),
             sense_number: None,
@@ -218,58 +214,50 @@ mod tests {
 
     #[test]
     fn another_complex_test_scheme() {
-        let mut indexes = Vec::new();
         //男の子(おとこのこ)
-        indexes.push(IndexWord {
+        let indexes = vec!(IndexWord {
             headword: "男の子".to_string(),
             reading: Some("おとこのこ".to_string()),
             sense_number: None,
             form_in_sentence: None,
             good_and_checked: false,
-        });
-        indexes.push(IndexWord {
+        }, IndexWord {
             headword: "は".to_string(),
             reading: None,
             sense_number: None,
             form_in_sentence: None,
             good_and_checked: false,
-        });
-        indexes.push(IndexWord {
+        }, IndexWord {
             headword: "結局".to_string(),
             reading: None,
             sense_number: None,
             form_in_sentence: None,
             good_and_checked: false,
-        });
-        indexes.push(IndexWord {
+        }, IndexWord {
             headword: "男の子".to_string(),
             reading: Some("おとこのこ".to_string()),
             sense_number: None,
             form_in_sentence: None,
             good_and_checked: false,
-        });
-        indexes.push(IndexWord {
+        }, IndexWord {
             headword: "である".to_string(),
             reading: None,
             sense_number: None,
             form_in_sentence: None,
             good_and_checked: false,
-        });
-        indexes.push(IndexWord {
+        }, IndexWord {
             headword: "事".to_string(),
             reading: Some("こと".to_string()),
             sense_number: None,
             form_in_sentence: Some("こと".to_string()),
             good_and_checked: false,
-        });
-        indexes.push(IndexWord {
+        }, IndexWord {
             headword: "を".to_string(),
             reading: None,
             sense_number: None,
             form_in_sentence: None,
             good_and_checked: false,
-        });
-        indexes.push(IndexWord {
+        }, IndexWord {
             headword: "思い出す".to_string(),
             reading: None,
             sense_number: None,
@@ -292,100 +280,87 @@ mod tests {
 
     #[test]
     fn test_scheme_complex_index_legacy_pipe_ignore() {
-        let mut indexes = Vec::new();
-        indexes.push(IndexWord {
+        let indexes = vec!(IndexWord {
             headword: "北".to_string(),
             reading: None,
             sense_number: None,
             form_in_sentence: None,
             good_and_checked: false,
-        });
-        indexes.push(IndexWord {
+        }, IndexWord {
             headword: "の".to_string(),
             reading: None,
             sense_number: None,
             form_in_sentence: None,
             good_and_checked: false,
-        });
-        indexes.push(IndexWord {
+        }, IndexWord {
             headword: "国".to_string(),
             reading: None,
             sense_number: Some(2),
             form_in_sentence: None,
             good_and_checked: true,
-        });
-        indexes.push(IndexWord {
+        }, IndexWord {
             headword: "から".to_string(),
             reading: None,
             sense_number: None,
             form_in_sentence: None,
             good_and_checked: false,
-        });
-        indexes.push(IndexWord {
+        }, IndexWord {
             headword: "は".to_string(),
             reading: None,
             sense_number: None,
             form_in_sentence: None,
             good_and_checked: false,
-        });
-        indexes.push(IndexWord {
+        }, IndexWord {
             headword: "北海道".to_string(),
             reading: None,
             sense_number: None,
             form_in_sentence: None,
             good_and_checked: false,
-        });
-        indexes.push(IndexWord {
+        }, IndexWord {
             headword: "市".to_string(),
             reading: Some("し".to_string()),
             sense_number: None,
             form_in_sentence: None,
             good_and_checked: false,
-        });
-        indexes.push(IndexWord {
+        }, IndexWord {
             headword: "を".to_string(),
             reading: None,
             sense_number: None,
             form_in_sentence: None,
             good_and_checked: false,
-        });
-        indexes.push(IndexWord {
+        }, IndexWord {
             headword: "舞台".to_string(),
             reading: None,
             sense_number: None,
             form_in_sentence: None,
             good_and_checked: false,
-        });
-        indexes.push(IndexWord {
+        }, IndexWord {
             headword: "に".to_string(),
             reading: None,
             sense_number: None,
             form_in_sentence: None,
             good_and_checked: false,
-        });
-        indexes.push(IndexWord {
+        }, IndexWord {
             headword: "為る".to_string(),
             reading: Some("する".to_string()),
             sense_number: None,
             form_in_sentence: Some("した".to_string()),
             good_and_checked: false,
-        });
-        indexes.push(IndexWord {
+        }, IndexWord {
             headword: "制作".to_string(),
             reading: None,
             sense_number: None,
             form_in_sentence: None,
             good_and_checked: false,
-        });
+        }, 
         // We don't avoid duplicates yet
-        indexes.push(IndexWord {
+        IndexWord {
             headword: "の".to_string(),
             reading: None,
             sense_number: None,
             form_in_sentence: None,
             good_and_checked: false,
-        });
-        indexes.push(IndexWord {
+        }, IndexWord {
             headword: "テレビドラマ".to_string(),
             reading: None,
             sense_number: None,
