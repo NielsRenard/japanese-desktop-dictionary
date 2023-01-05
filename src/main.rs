@@ -36,7 +36,7 @@ enum Dict {
         input_value: String,
         button: button::State,
         example_sentences: SentenceMap,
-        modal_state: modal::State<ModalState>,
+        show_modal: bool,
     },
     Loading {
         example_sentences: SentenceMap,
@@ -56,9 +56,9 @@ enum Dict {
         toggle_show_translation: bool,
         search_results: Vec<SearchResult>,
         example_sentences: SentenceMap,
-        modal_state: modal::State<ModalState>,
         slider_state: slider::State,
         text_zoom_value: u16,
+        show_modal: bool,
     },
 }
 
@@ -202,10 +202,7 @@ impl Application for Dict {
                             input_value: "".to_string(),
                             button: button::State::new(),
                             example_sentences: sentence_map,
-                            modal_state: modal::State::new(ModalState {
-                                cancel_state: button::State::new(),
-                                ok_state: button::State::new(),
-                            }),
+                            show_modal: false,
                         };
                         Command::none()
                     }
@@ -223,8 +220,9 @@ impl Application for Dict {
             Dict::Waiting {
                 input_value,
                 example_sentences,
-                modal_state,
-                ..
+                input,
+                button,
+                show_modal,
             } => match message {
                 Message::InputChanged(value) => {
                     *input_value = value;
@@ -241,11 +239,11 @@ impl Application for Dict {
                 }
                 Message::EscapeButtonPressed => self.update(Message::OpenModal),
                 Message::OpenModal => {
-                    modal_state.show(true);
+                    *show_modal = true;
                     Command::none()
                 }
                 Message::CancelButtonPressed | Message::CloseModal => {
-                    modal_state.show(false);
+                    *show_modal = false;
                     Command::none()
                 }
                 Message::OkButtonPressed => {
@@ -297,10 +295,7 @@ impl Application for Dict {
                         input_value: "".to_string(),
                         button: button::State::new(),
                         example_sentences: state_swap_example_sentences,
-                        modal_state: modal::State::new(ModalState {
-                            cancel_state: button::State::new(),
-                            ok_state: button::State::new(),
-                        }),
+                        show_modal: false,
                     };
                     Command::none()
                 }
@@ -315,12 +310,9 @@ impl Application for Dict {
                         toggle_show_translation: false,
                         search_results: std::mem::take(search_results),
                         example_sentences: std::mem::take(example_sentences),
-                        modal_state: modal::State::new(ModalState {
-                            cancel_state: button::State::new(),
-                            ok_state: button::State::new(),
-                        }),
                         slider_state: slider::State::new(),
                         text_zoom_value: 18,
+                        show_modal: false,
                     };
                     Command::none()
                 }
@@ -333,9 +325,12 @@ impl Application for Dict {
                 reading,
                 translations,
                 toggle_show_translation,
-                modal_state,
                 text_zoom_value,
-                ..
+                back_button,
+                create_flashcard_button,
+                show_english_button,
+                slider_state,
+                show_modal,
             } => match message {
                 Message::BackButtonPressed | Message::EscapeButtonPressed => {
                     *self = Dict::Loaded {
@@ -367,17 +362,17 @@ impl Application for Dict {
                     Command::none()
                 }
                 Message::OpenModal => {
-                    modal_state.show(true);
+                    *show_modal = true;
                     Command::none()
                 }
                 Message::CancelButtonPressed | Message::CloseModal => {
-                    modal_state.show(false);
+                    *show_modal = false;
                     Command::none()
                 }
                 Message::OkButtonPressed => self.update(Message::CloseModal),
                 Message::UndoButtonPressed => {
                     let _ = delete_last_line_of_csv();
-                    modal_state.show(false);
+                    *show_modal = false;
                     Command::none()
                 }
                 _ => Command::none(),
@@ -414,8 +409,7 @@ impl Application for Dict {
                 input_value,
                 button,
                 example_sentences: _,
-                modal_state,
-                ..
+                show_modal,
             } => {
                 let column = Column::new()
                     .width(Length::Fill)
@@ -442,8 +436,7 @@ impl Application for Dict {
                             .on_press(Message::SearchButtonPressed), // .style(style::Button::Primary),
                     );
 
-                // let modal = Modal::new(modal_state, column, |state| {
-                let modal = Modal::new(false, column, || {
+                let modal = Modal::new(*show_modal, column, || {
                     Card::new(
                         Text::new("Exit"),
                         Text::new("Are you sure you want to quit?"),
@@ -579,10 +572,10 @@ impl Application for Dict {
                 back_button,
                 show_english_button,
                 toggle_show_translation,
-                modal_state,
                 slider_state,
                 text_zoom_value,
-                ..
+                search_results,
+                show_modal,
             } => {
                 let sentences = match example_sentences.get(word) {
                     Some(sentences) => sentences.to_owned(),
@@ -708,8 +701,7 @@ impl Application for Dict {
 
                 let scrollable = scrollable(Container::new(column).width(Length::Fill).center_x());
 
-                // let modal = Modal::new(modal_state, scrollable, |state| {
-                let modal = Modal::new(false, scrollable, || {
+                let modal = Modal::new(*show_modal, scrollable, || {
                     Card::new(Text::new("Save Anki flash card"), Text::new("Saved!"))
                         .foot(
                             Row::new()
@@ -803,7 +795,7 @@ impl Dict {
         let sentences = sentences.replace("	 ", "	"); // tab + space becomes just tab
         let sentences = sentences.replace(" \n", "\n"); // space + newline becomes just newline
         let sentences = sentences.replace("  ", " "); // two spaces becomes one space
-        let sentences = sentences + &"\n".to_string(); // add newline to keep parser simple (kind of hacky)
+        let sentences = sentences + "\n"; // add newline to keep parser simple (kind of hacky)
         let lines: Vec<_> = LinesWithEndings::from(&sentences).collect();
         println!("start parsing wwwjdict example sentences...");
         let start_parsing = std::time::SystemTime::now();
